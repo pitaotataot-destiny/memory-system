@@ -1,0 +1,348 @@
+# ============================================================
+# Memory System DSL v1 — 声明式记忆规则引擎
+# ============================================================
+# 职责边界：
+#   DSL 管「什么」（类型 / 衰减 / 搜索 / 存储 / 触发器）
+#   引擎管「怎么做」（IO / 调度 / 模型加载）
+#
+# 所有带 # 注释的字段都是必填项，无注释字段为可选
+# ============================================================
+
+# ── 版本号 ────────────────────────────────────────────────
+# 语义版本号，引擎据此做兼容检查和迁移。
+# 当前仅支持 "1.0"，后续 DSL 变更递增此值。
+version: "1.0"
+
+
+# ── 全局设置 ─────────────────────────────────────────────
+globals:
+  # 新建记忆时未指定 type 的默认值。
+  # 可选值：fact | preference | context | reference
+  default_type: fact
+
+  # 记忆库总量上限。当记忆数量超过此值时，触发清理机制（按 importance 从低到高删除）。
+  max_memory_size: 5000
+
+  # 记忆的默认存活天数。超过此天数未访问的记忆可被标记为过期。
+  default_ttl_days: 30
+
+  # 存储引擎配置
+  storage:
+    # 存储后端类型。可选值：json（文件存储）| sqlite（数据库，预留）
+    engine: json
+    # 数据根目录路径。引擎在此目录下创建索引文件和记忆文件。
+    path: "./data/memory"
+    # 文件读写编码，固定 utf-8。
+    encoding: "utf-8"
+
+
+# ── 1. 记忆类型定义 ──────────────────────────────────────
+# 每种记忆类型定义了三部分内容：
+#   fields — 字段约束（类型、是否必填、取值范围、默认值）
+#   tags   — 标签约束（最大数量、命名规则正则）
+#   meta   — 类型元数据（去重规则、不可变字段、重要性下限、是否短期）
+# 新增类型只需在此加一个块，引擎自动识别。
+types:
+
+  # ── fact：事实知识 ──
+  # 用于存储客观事实、技术知识等，衰减较慢，不易被清理。
+  fact:
+    # 类型描述，仅供文档展示，引擎不使用。
+    description: "事实知识"
+
+    # 字段定义：key 是字段名，value 是约束规则
+    fields:
+      # 记忆正文，string 类型，必填。
+      content:     { type: string, required: true }
+      # 信息来源，可选。
+      source:      { type: string, required: false }
+      # 置信度，0~1 之间的浮点数，默认 0.8。
+      confidence:  { type: float,   min: 0, max: 1, default: 0.8 }
+
+    # 标签约束
+    tags:
+      # 最多允许 10 个标签
+      max: 10
+      # 标签命名规则：仅允许字母数字、下划线、连字符
+      allowed_pattern: "^[a-zA-Z0-9_\\-]+$"
+
+    # 类型元数据
+    meta:
+      # 创建后不可修改的字段列表
+      immutable_fields: ["created_at", "type"]
+      # 去重规则：content 字段相同的记忆视为重复，拒绝写入
+      unique_by: ["content"]
+
+  # ── preference：用户偏好 ──
+  # 用户的工作习惯、代码风格偏好等，权重更高，不易被清掉。
+  preference:
+    description: "用户偏好"
+    fields:
+      # 偏好内容，必填。
+      content:    { type: string, required: true }
+      # 偏好分类，必填。用于区分反馈 / 风格 / 工作流等不同类型。
+      category:   { type: string, required: true }
+      # 偏好强度，1~5 整数，默认 3。值越高表示用户越重视。
+      strength:   { type: int,    min: 1, max: 5, default: 3 }
+    tags:
+      max: 5
+    meta:
+      # 去重规则：content + category 组合唯一
+      unique_by: ["content", "category"]
+      # 重要性下限 0.3，即使长期不访问也不会低于此值（不会被清理）
+      importance_floor: 0.3
+
+  # ── context：项目上下文 ──
+  # 当前项目/任务的上下文信息，衰减快，属于短期记忆。
+  context:
+    description: "项目上下文"
+    fields:
+      content:     { type: string, required: true }
+      # 上下文范围，必填。project（整个项目）/ module（模块）/ file（文件级）
+      scope:       { type: string, required: true }
+      # 可选：覆盖全局 default_ttl_days，自定义该记忆的存活天数。
+      ttl_override: { type: int, min: 1 }
+    tags:
+      # 上下文类允许较多标签，方便按模块/功能筛选
+      max: 20
+    meta:
+      # 标记为短期记忆，引擎可对此类应用更快的衰减策略
+      ephemeral: true
+      # 重要性下限很低，容易被清理
+      importance_floor: 0.05
+
+  # ── reference：参考资料 ──
+  # 外部链接、文档片段、文件引用等。
+  reference:
+    description: "参考资料"
+    fields:
+      content:  { type: string, required: true }
+      # 外部 URL，可选，但必须符合 URI 格式（引擎会校验 format: uri）
+      url:      { type: string, required: false, format: uri }
+      # 资料格式，限定为 link（链接）/ snippet（片段）/ file（文件路径）三选一
+      format:   { type: string, enum: [link, snippet, file] }
+    tags:
+      max: 15
+    meta:
+      # URL 一旦写入不可修改，防止链接被意外篡改
+      immutable_fields: ["url"]
+
+
+# ── 2. 衰减策略 ─────────────────────────────────────────
+# 声明式衰减公式，引擎负责计算和执行。
+# 衰减的核心逻辑：importance = 上次 importance × daily_decay + access_gain
+decay:
+  # ── 默认衰减参数 ──
+  # 衰减计算逻辑：importance = previous_importance × daily_decay + access_gain
+  # 引擎内置实现，此处仅声明参数值。
+  default:
+
+    # 每天未访问时的衰减系数。0.92 = 每天保留 92% 的当前重要性。
+    # 值越接近 1.0 衰减越慢，越小衰减越快。
+    daily_decay: 0.92
+
+    # 每次被访问（搜索命中/读取/更新）时增加的重要性。
+    # 与 daily_decay 配合：频繁使用的记忆重要性逐渐升高。
+    access_gain: 0.05
+
+    # 重要性清理阈值。当 importance < min_importance 时，记忆被自动清理。
+    min_importance: 0.1
+
+  # ── 按类型覆盖默认参数 ──
+  # key 必须是 types 中已定义的类型名，否则解析报错。
+  # 未列出的类型自动 fallback 到 default。
+  type_overrides:
+    # 事实类：衰减慢（0.95），访问增益小（0.03）— 稳定持久
+    fact:
+      daily_decay: 0.95
+      access_gain: 0.03
+
+    # 偏好类：衰减极慢（0.97）
+    # importance_floor 已在 types.preference.meta 中定义为 0.3
+    preference:
+      daily_decay: 0.97
+      access_gain: 0.02
+
+    # 上下文类：衰减快（0.85），访问增益大（0.08）— 短期热点
+    context:
+      daily_decay: 0.85
+      access_gain: 0.08
+
+    # 参考类：衰减速度中等
+    reference:
+      daily_decay: 0.90
+
+  # ── 生命周期钩子 ──
+  lifecycle:
+    # 超过 N 天未访问，标记为 stale（陈旧）。引擎可据此降低搜索排序权重。
+    stale_after_days: 14
+
+    # 超过 N 天未访问，移入归档存储（降低查询频率但保留数据）。
+    archive_after_days: 30
+
+    # 清理条件：满足任一即触发 purge
+    purge_when:
+      # importance 低于此值直接删除
+      importance_below: 0.1
+      # 或连续 N 天未访问（即使 importance 尚可）
+      or_stale_days: 60
+
+
+# ── 3. 搜索策略 ─────────────────────────────────────────
+search:
+  # ── 可用搜索引擎 ──
+  # key 是引擎标识，引擎代码通过此标识查找配置。
+  engines:
+    # 关键词匹配引擎
+    keyword:
+      # 是否启用。false 则所有依赖此引擎的策略自动跳过。
+      enabled: true
+      # 描述，仅供文档。
+      description: "精确字面匹配"
+
+    # TF-IDF 统计引擎
+    tfidf:
+      enabled: true
+      description: "词频统计排序"
+      # 引擎专属参数，key/value 对透传给搜索引擎实现。
+      params:
+        # 最大特征数（词汇表大小）
+        max_features: 10000
+        # 停用词列表，null 表示使用内置默认
+        stop_words: null
+
+    # Embedding 向量语义引擎
+    embedding:
+      enabled: true
+      description: "向量语义搜索"
+      # Hugging Face 模型标识符，首次启动自动下载。
+      model: "shibing624/text2vec-base-chinese"
+      # 模型缓存目录
+      cache_dir: "./data/.model_cache"
+      params:
+        # 批量编码大小
+        batch_size: 32
+        # 相似度算法：cosine（余弦相似度）
+        similarity: "cosine"
+        # 最低相关度阈值，低于此值的结果被过滤
+        threshold: 0.65
+
+  # ── 搜索策略 ──
+  # 策略 = 多个引擎步骤 + 合并方式。支持按需切换策略。
+  strategies:
+    # 默认策略：语义为主，关键词兜底
+    default:
+      # 策略描述
+      description: "默认搜索：语义为主，关键词兜底"
+
+      # 步骤列表，按顺序执行。每一步指定引擎、权重、返回数量。
+      steps:
+        # 第一步：embedding 语义搜索，权重 0.7，取 top 20
+        - engine: embedding
+          weight: 0.7
+          top_k: 20
+
+        # 第二步：keyword 关键词搜索，权重 0.3，取 top 10
+        - engine: keyword
+          weight: 0.3
+          top_k: 10
+          # fallback=true：当 embedding 无结果时才启用此步
+          fallback: true
+
+      # 结果合并方式：
+      #   weighted_score — 按 weight 加权合并排序
+      #   dedup          — 去重后按引擎顺序拼接
+      #   concat         — 直接拼接
+      merge: "weighted_score"
+
+      # 最终返回的最大结果数
+      limit: 10
+
+    # 快速策略：仅关键词，适合无 embedding 模型的环境
+    fast:
+      description: "快速搜索：仅关键词"
+      steps:
+        - engine: keyword
+          weight: 1.0
+          top_k: 20
+      merge: "direct"
+      limit: 10
+
+    # 全量召回策略：三引擎合并，适合 recall 场景
+    recall:
+      description: "全量召回：三引擎合并"
+      steps:
+        - engine: embedding
+          weight: 0.5
+          top_k: 50
+        - engine: tfidf
+          weight: 0.3
+          top_k: 30
+        - engine: keyword
+          weight: 0.2
+          top_k: 20
+      merge: "weighted_score"
+      limit: 25
+
+  # ── 类型过滤器 ──
+  # 搜索时默认包含/排除的记忆类型。空列表 = 不过滤。
+  type_filters:
+    # 仅搜索这些类型的记忆（空 = 搜索全部类型）
+    include: []
+    # 排除这些类型的记忆（空 = 不排除任何类型）
+    exclude: []
+
+
+# ── 4. 触发器（可选扩展） ─────────────────────────────────
+# 事件驱动机制：when 条件满足时执行 then 动作。
+# 触发器在引擎启动时注册，运行时由调度器/事件总线触发。
+triggers:
+
+  # ── 定时衰减检查 ──
+  - name: "auto_decay_check"
+    when:
+      # cron 表达式，分钟 小时 日 月 周。此处为每天凌晨 3:00。
+      schedule: "0 3 * * *"
+    then:
+      # 执行衰减计算，遍历所有记忆更新 importance。
+      action: "run_decay"
+      # 作用范围：all（全部）或具体类型名
+      target: all
+
+  # ── 溢出自动清理 ──
+  - name: "cleanup_on_overflow"
+    when:
+      # 布尔表达式，当记忆总数超过全局上限时触发。
+      # 表达式语法由引擎实现，此处 DSL 仅声明。
+      condition: "memory_count > globals.max_memory_size"
+    then:
+      # 执行清理
+      action: "purge"
+      # 按 importance 升序排列（先删重要性最低的）
+      order_by: "importance ASC"
+      # 每次最多清理 100 条
+      limit: 100
+
+  # ── 新建记忆自动生成 embedding ──
+  - name: "auto_embed_new"
+    when:
+      # 事件：新建记忆时触发
+      event: "memory_created"
+    then:
+      # 生成向量 embedding
+      action: "generate_embedding"
+      # 前置条件：embedding 引擎已启用
+      condition: "search.engines.embedding.enabled == true"
+
+  # ── 标签自动规范化 ──
+  - name: "tag_normalize"
+    when:
+      # 事件：记忆被更新时触发
+      event: "memory_updated"
+      # 限定仅在 tags 字段被修改时触发
+      field: "tags"
+    then:
+      # 执行标签规范化
+      action: "normalize_tags"
+      # 规范化规则：转小写 + 去首尾空格
+      rule: "lowercase + trim"
