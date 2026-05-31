@@ -20,6 +20,9 @@ import java.util.stream.Collectors;
  */
 public class SearchMgr {
 
+    // 热记忆搜索加分系数
+    private static final double HOT_BOOST_FACTOR = 1.2;
+
     private final MemoryRuntimeContext ctx;
 
     public SearchMgr(MemoryRuntimeContext ctx) {
@@ -168,9 +171,15 @@ public class SearchMgr {
         return new ArrayList<>(scored.values());
     }
 
-    /** 排序 + 截断 */
-    private static List<SearchResult> sortAndLimit(List<SearchResult> results, int limit) {
-        List<SearchResult> sorted = results.stream()
+    /** 排序 + 截断，热记忆获得 1.2x 分数加成 */
+    private List<SearchResult> sortAndLimit(List<SearchResult> results, int limit) {
+        // 热记忆加成
+        List<SearchResult> boosted = results.stream()
+            .map(r -> ctx.isHot(r.memoryId())
+                ? new SearchResult(r.memoryId(), r.rawScore() * HOT_BOOST_FACTOR, r.source())
+                : r)
+            .collect(Collectors.toList());
+        List<SearchResult> sorted = boosted.stream()
             .sorted(Comparator.comparingDouble(SearchResult::rawScore).reversed())
             .collect(Collectors.toList());
         if (limit <= 0 || limit >= sorted.size()) {

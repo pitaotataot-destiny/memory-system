@@ -11,13 +11,18 @@ import com.memory.agent.spi.IntentClassifier;
 import com.memory.agent.spi.MemoryConsolidator;
 import com.memory.engine.manager.DecayMgr;
 import com.memory.engine.manager.SearchMgr;
+import com.memory.model.MemoryRecord;
 import com.memory.model.MetaModel;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * MemoryAgent — Layer 3 顶层门面。
@@ -50,6 +55,78 @@ public class MemoryAgent implements AutoCloseable {
         this.consolidator = consolidator;
         this.ingestPipeline = new IngestPipeline(client, model,
             classifier, extractor, importanceAssigner, conflictDetector);
+
+        // 注册记忆合并定时任务
+        scheduleConsolidation();
+    }
+
+    /** 按 DSL agent.consolidation.schedule 注册合并定时任务 */
+    private void scheduleConsolidation() {
+        if (model.getAgent() == null || consolidator == null) return;
+        String cronExpr = model.getAgent().getConsolidation().getSchedule();
+        if (cronExpr == null || cronExpr.isEmpty()) return;
+
+        // 解析 cron 为间隔毫秒（复用 DefaultScheduler 逻辑）
+        long intervalMs = parseCronToMs(cronExpr);
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "consolidation-scheduler");
+            t.setDaemon(true);
+            return t;
+        });
+
+        scheduler.scheduleAtFixedRate(this::runConsolidation,
+            intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        LOG.info("Consolidation scheduled: cron={}, interval={}s",
+            cronExpr, intervalMs / 1000);
+    }
+
+    /** 执行一次合并周期 */
+    private void runConsolidation() {
+        try {
+            Set<String> allIds = client.listAll();
+            List<MemoryRecord> records = new ArrayList<>();
+            for (String id : allIds) {
+                String raw = client.read(id);
+                if (raw != null) {
+                    try { records.add(MemoryRecord.fromJson(raw)); }
+                    catch (Exception e) { /* skip corrupt */ }
+                }
+            }
+
+            var candidates = consolidator.findCandidates(records, model);
+            if (candidates.isEmpty()) return;
+
+            for (var c : candidates) {
+                LOG.debug("Consolidation candidate: {} memories (reason: {})",
+                    c.memoryIds().size(), c.mergeReason());
+                // 合并策略：保留最新的，其余标记为 archived
+                if (c.memoryIds().size() >= 2) {
+                    String keepId = c.memoryIds().get(c.memoryIds().size() - 1);
+                    for (int i = 0; i < c.memoryIds().size() - 1; i++) {
+                        String oldId = c.memoryIds().get(i);
+                        checkLifecycle(oldId);  // 标记为 archive 不会自动删除
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Consolidation error: {}", e.getMessage());
+        }
+    }
+
+    /** 简易 cron 解析 → 毫秒 */
+    private static long parseCronToMs(String cron) {
+        String[] parts = cron.trim().split("\\s+");
+        if (parts.length < 2) return 24 * 3_600_000L;
+        String minute = parts[0];
+        String hour = parts[1];
+        if (minute.startsWith("*/")) {
+            return Integer.parseInt(minute.substring(2)) * 60_000L;
+        }
+        if (hour.startsWith("*/")) {
+            return Integer.parseInt(hour.substring(2)) * 3_600_000L;
+        }
+        if ("*".equals(minute)) return 60_000L;
+        return 24 * 3_600_000L;  // 固定时间 → 每天
     }
 
     /**

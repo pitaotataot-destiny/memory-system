@@ -37,6 +37,8 @@ public class DecayMgr {
     private static final long SECONDS_PER_DAY = 86400;
     // 重要性变化可忽略阈值（低于此值不触发写回）
     private static final double IMPORTANCE_EPSILON = 0.0001;
+    // L0 热记忆阈值（低于此值移出热缓存）
+    private static final double HOT_THRESHOLD = 0.7;
 
     private final MemoryRuntimeContext ctx;
 
@@ -171,6 +173,13 @@ public class DecayMgr {
         if (Math.abs(newImportance - currentImportance) < IMPORTANCE_EPSILON) return false;
 
         record.setImportance(newImportance);
+
+        // 热缓存维护：importance 低于阈值移出 L0
+        if (newImportance < HOT_THRESHOLD && ctx.isHot(id)) {
+            ctx.evictHot(id);
+        } else if (newImportance >= HOT_THRESHOLD) {
+            ctx.markHot(id, newImportance);
+        }
         return true;
     }
 

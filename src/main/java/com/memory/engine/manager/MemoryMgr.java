@@ -76,6 +76,9 @@ public class MemoryMgr {
         // 缓存类型（避免搜索过滤时逐条磁盘 IO）
         ctx.cacheType(id, resolvedKind);
 
+        // 新记忆 importance=1.0 → 标记为热记忆
+        ctx.markHot(id, 1.0);
+
         // 索引到所有搜索引擎
         indexForSearch(id, record);
 
