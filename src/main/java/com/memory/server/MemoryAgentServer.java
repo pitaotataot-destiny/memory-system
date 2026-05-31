@@ -146,9 +146,19 @@ public class MemoryAgentServer {
             return;
         }
         try {
-            // 尝试解析 JSON 返回
             Object parsed = mapper.readValue(data, Object.class);
-            sendJson(exchange, HTTP_OK, Map.of("id", id, "data", parsed));
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("id", id);
+            resp.put("data", parsed);
+            // 也提取 rawText 方便直接看
+            try {
+                MemoryRecord record = MemoryRecord.fromJson(data);
+                resp.put("type", record.getType());
+                resp.put("importance", record.getImportance());
+                resp.put("tags", record.getTags());
+                resp.put("rawText", record.getDataField("rawText"));
+            } catch (Exception ignored) {}
+            sendJson(exchange, HTTP_OK, resp);
         } catch (Exception e) {
             sendJson(exchange, HTTP_OK, Map.of("id", id, "raw", data));
         }
@@ -207,6 +217,7 @@ public class MemoryAgentServer {
             item.put("lifecycle", status.status());
             item.put("importance", record.getImportance());
             item.put("tags", record.getTags());
+            item.put("rawText", record.getDataField("rawText"));
             item.put("content", preview(record.getDataField("content"), 100));
             item.put("lastAccessed", record.getLastAccessed());
             result.add(item);
