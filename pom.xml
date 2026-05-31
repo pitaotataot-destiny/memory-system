@@ -21,6 +21,7 @@
     <!-- 项目专属属性 -->
     <properties>
         <snakeyaml.version>2.3</snakeyaml.version>
+        <jackson.version>2.18.3</jackson.version>
         <junit.version>5.11.0</junit.version>
     </properties>
 
@@ -30,6 +31,11 @@
             <groupId>org.yaml</groupId>
             <artifactId>snakeyaml</artifactId>
             <version>${snakeyaml.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>

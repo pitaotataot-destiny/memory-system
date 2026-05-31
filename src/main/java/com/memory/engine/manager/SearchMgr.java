@@ -1,5 +1,6 @@
 package com.memory.engine.manager;
 
+import com.memory.model.MemoryRecord;
 import com.memory.model.search.SearchStep;
 import com.memory.model.search.SearchStrategy;
 import com.memory.runtime.MemoryRuntimeContext;
@@ -112,67 +113,66 @@ public class SearchMgr {
      */
     private List<SearchResult> mergeResults(List<Map<String, SearchResult>> stepResults,
                                             com.memory.model.search.SearchStrategy strategy) {
-        var merge = strategy.getMerge();
-        List<SearchResult> combined;
+        List<SearchResult> combined = combineByStrategy(stepResults, strategy.getMerge());
+        List<SearchResult> filtered = applyTypeFilters(combined);
+        return sortAndLimit(filtered, strategy.getLimit());
+    }
 
-        switch (merge) {
+    /** 按合并策略将多步骤结果合并为单一列表 */
+    private List<SearchResult> combineByStrategy(List<Map<String, SearchResult>> stepResults,
+                                                  com.memory.model.enums.MergeStrategy merge) {
+        return switch (merge) {
             case DEDUP -> {
-                // 按 ID 去重：首次出现的保留，后续忽略
                 Map<String, SearchResult> deduped = new LinkedHashMap<>();
                 for (Map<String, SearchResult> stepResult : stepResults) {
                     for (Map.Entry<String, SearchResult> entry : stepResult.entrySet()) {
                         deduped.putIfAbsent(entry.getKey(), entry.getValue());
                     }
                 }
-                combined = new ArrayList<>(deduped.values());
+                yield new ArrayList<>(deduped.values());
             }
             case CONCAT -> {
-                // 直接拼接：保持步骤顺序
-                combined = new ArrayList<>();
+                List<SearchResult> all = new ArrayList<>();
                 for (Map<String, SearchResult> stepResult : stepResults) {
-                    combined.addAll(stepResult.values());
+                    all.addAll(stepResult.values());
                 }
+                yield all;
             }
             case DIRECT -> {
-                // 仅首个步骤的结果
-                combined = new ArrayList<>();
-                if (!stepResults.isEmpty()) {
-                    combined.addAll(stepResults.get(0).values());
-                }
+                if (stepResults.isEmpty()) yield List.of();
+                yield new ArrayList<>(stepResults.get(0).values());
             }
-            default -> {
-                // WEIGHTED_SCORE：按权重累加分数
-                Map<String, SearchResult> scored = new LinkedHashMap<>();
-                for (Map<String, SearchResult> stepResult : stepResults) {
-                    for (Map.Entry<String, SearchResult> entry : stepResult.entrySet()) {
-                        String id = entry.getKey();
-                        SearchResult newResult = entry.getValue();
-                        SearchResult existing = scored.get(id);
-                        if (existing != null) {
-                            scored.put(id, new SearchResult(
-                                id,
-                                existing.rawScore() + newResult.rawScore(),
-                                existing.source() + "," + newResult.source()
-                            ));
-                        } else {
-                            scored.put(id, newResult);
-                        }
-                    }
+            default -> combineWeighted(stepResults);
+        };
+    }
+
+    /** 加权合并：同 ID 累加分数 */
+    private List<SearchResult> combineWeighted(List<Map<String, SearchResult>> stepResults) {
+        Map<String, SearchResult> scored = new LinkedHashMap<>();
+        for (Map<String, SearchResult> stepResult : stepResults) {
+            for (Map.Entry<String, SearchResult> entry : stepResult.entrySet()) {
+                String id = entry.getKey();
+                SearchResult newResult = entry.getValue();
+                SearchResult existing = scored.get(id);
+                if (existing != null) {
+                    scored.put(id, new SearchResult(
+                        id,
+                        existing.rawScore() + newResult.rawScore(),
+                        existing.source() + "," + newResult.source()
+                    ));
+                } else {
+                    scored.put(id, newResult);
                 }
-                combined = new ArrayList<>(scored.values());
             }
         }
+        return new ArrayList<>(scored.values());
+    }
 
-        // Apply type filters from DSL configuration
-        List<SearchResult> filtered = applyTypeFilters(combined);
-
-        // Sort by score descending
-        List<SearchResult> sorted = filtered.stream()
+    /** 排序 + 截断 */
+    private static List<SearchResult> sortAndLimit(List<SearchResult> results, int limit) {
+        List<SearchResult> sorted = results.stream()
             .sorted(Comparator.comparingDouble(SearchResult::rawScore).reversed())
             .collect(Collectors.toList());
-
-        // Apply limit
-        int limit = strategy.getLimit();
         if (limit <= 0 || limit >= sorted.size()) {
             return sorted;
         }
@@ -209,7 +209,12 @@ public class SearchMgr {
                     ctx.getMetaModel().getGlobals().getStorage().getEngine().getValue());
                 String json = store.load(r.memoryId());
                 if (json == null) return false;
-                type = parseMetaType(json);
+                try {
+                    MemoryRecord record = MemoryRecord.fromJson(json);
+                    type = record.getType();
+                } catch (IllegalArgumentException e) {
+                    return false;  // JSON 损坏，跳过此结果
+                }
                 if (type != null) {
                     ctx.cacheType(r.memoryId(), type);  // 填充缓存
                 }
@@ -222,19 +227,6 @@ public class SearchMgr {
             if (hasInclude && !include.contains(type)) return false;
             return true;
         }).collect(Collectors.toList());
-    }
-
-    /**
-     * 从记忆包装 JSON 中提取 _type 元数据字段。
-     */
-    private static String parseMetaType(String json) {
-        String key = "\"_type\":\"";
-        int idx = json.indexOf(key);
-        if (idx < 0) return null;
-        idx += key.length();
-        int end = json.indexOf('"', idx);
-        if (end < 0) return null;
-        return json.substring(idx, end);
     }
 
     /**
