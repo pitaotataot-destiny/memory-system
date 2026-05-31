@@ -85,7 +85,7 @@ public class IngestPipeline {
         ctx.setCompletedAt(completedAt);
 
         IngestResult result = new IngestResult(
-            ctx.getTypeKind(), ctx.getConfidence(), memoryId,
+            ctx.getRawText(), ctx.getTypeKind(), ctx.getConfidence(), memoryId,
             ctx.getExtractedFields(), ctx.getExtractedTags(),
             IngestDecision.STORE, completedAt, null
         );

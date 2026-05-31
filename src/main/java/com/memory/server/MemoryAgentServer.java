@@ -331,6 +331,7 @@ public class MemoryAgentServer {
 
     private Map<String, Object> toIngestResponse(IngestResult r) {
         Map<String, Object> m = new LinkedHashMap<>();
+        m.put("rawText", r.rawText());
         m.put("typeKind", r.typeKind());
         m.put("confidence", r.confidence());
         m.put("memoryId", r.memoryId());
