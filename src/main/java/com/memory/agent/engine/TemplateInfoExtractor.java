@@ -49,6 +49,9 @@ public class TemplateInfoExtractor implements InformationExtractor {
         // 提取显式 #标签
         extractHashTags(rawText, tags);
 
+        // 保存原始输入
+        fields.put("rawText", rawText);
+
         // 填充默认值
         fillDefaults(fields, type);
 

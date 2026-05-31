@@ -240,6 +240,8 @@ class CombinedClassifyExtractStep implements PipelineStep {
 
         ctx.setTypeKind(typeKind);
         ctx.setConfidence(confidence);
+        // 保存原始输入到 fields 中，使查询时也能看到
+        fields.put("rawText", ctx.getRawText());
         ctx.setExtractedFields(fields);
         ctx.setExtractedTags(tags);
     }
