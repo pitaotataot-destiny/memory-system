@@ -13,5 +13,8 @@ Thumbs.db
 # Data (memory files)
 data/
 
+# Claude Code
+.claude/
+
 # Benchmark
 benchmark/

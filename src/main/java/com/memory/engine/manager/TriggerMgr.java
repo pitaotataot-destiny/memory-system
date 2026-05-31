@@ -11,6 +11,9 @@ import com.memory.spi.EventBus;
 import com.memory.spi.ExpressionEngine;
 import com.memory.spi.Scheduler;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,11 +28,20 @@ import java.util.Map;
  */
 public class TriggerMgr {
 
+    private static final Logger LOG = LoggerFactory.getLogger(TriggerMgr.class);
+
     private final MemoryRuntimeContext ctx;
+    private final MemoryMgr memoryMgr;
     private final DecayMgr decayMgr;
 
-    public TriggerMgr(MemoryRuntimeContext ctx, DecayMgr decayMgr) {
+    /**
+     * @param ctx       运行时上下文
+     * @param memoryMgr 记忆管理器（注入复用，避免每次 new）
+     * @param decayMgr  衰减管理器
+     */
+    public TriggerMgr(MemoryRuntimeContext ctx, MemoryMgr memoryMgr, DecayMgr decayMgr) {
         this.ctx = ctx;
+        this.memoryMgr = memoryMgr;
         this.decayMgr = decayMgr;
     }
 
@@ -45,6 +57,19 @@ public class TriggerMgr {
         for (Trigger trigger : triggers) {
             registerTrigger(trigger);
         }
+        LOG.info("Registered {} triggers from MetaModel", triggers.size());
+    }
+
+    /**
+     * 热重载触发器：清除旧绑定，从当前 MetaModel 重新注册。
+     * 由 MemoryClient.updateModel() / DSLWatcher.reloadModel() 调用。
+     */
+    public void reloadAllTriggers() {
+        LOG.info("Reloading triggers for hot update...");
+        ctx.getEventBus().clearSubscriptions();
+        ctx.getScheduler().cancelAll();
+        registerAllTriggers();
+        LOG.info("Triggers reloaded successfully");
     }
 
     /**
@@ -87,7 +112,7 @@ public class TriggerMgr {
                     "event_payload", evt.payload()
                 ));
             } catch (Exception e) {
-                System.err.println("[TriggerMgr] Event trigger error (" + trigger.getName() + "): " + e.getMessage());
+                LOG.error("[TriggerMgr] Event trigger error ({}): {}", trigger.getName(), e.getMessage());
             }
         });
     }
@@ -106,7 +131,7 @@ public class TriggerMgr {
                     "timestamp", System.currentTimeMillis()
                 ));
             } catch (Exception e) {
-                System.err.println("[TriggerMgr] Schedule trigger error (" + trigger.getName() + "): " + e.getMessage());
+                LOG.error("[TriggerMgr] Schedule trigger error ({}): {}", trigger.getName(), e.getMessage());
             }
         });
     }
@@ -129,7 +154,7 @@ public class TriggerMgr {
                     executeAction(trigger.getThen(), variables);
                 }
             } catch (Exception e) {
-                System.err.println("[TriggerMgr] Condition trigger error (" + trigger.getName() + "): " + e.getMessage());
+                LOG.error("[TriggerMgr] Condition trigger error ({}): {}", trigger.getName(), e.getMessage());
             }
         });
     }
@@ -149,10 +174,10 @@ public class TriggerMgr {
                 runPurgeAction(action);
                 break;
             case GENERATE_EMBEDDING:
-                // TODO: implement when embedding provider has real model
+                // embedding 模型尚未接入，占位待实现
                 break;
             case NORMALIZE_TAGS:
-                // TODO: implement tag normalization
+                // 标签规范化功能尚未实现
                 break;
         }
     }
@@ -164,19 +189,21 @@ public class TriggerMgr {
         List<String> decayed = decayMgr.runDecay();
         DecayMgr.LifecycleSummary summary = decayMgr.runLifecycleCheck();
         ctx.incrementWrites();
+        LOG.debug("Decay action complete: {} decayed, {} purged", decayed.size(), summary.purged());
     }
 
     /**
      * Run purge action — deletes memories matching the action's condition.
+     * 使用注入的 memoryMgr 实例，不重复创建。
      */
     private void runPurgeAction(TriggerAction action) {
-        MemoryMgr memoryMgr = new MemoryMgr(ctx);
         int count = memoryMgr.count();
-
-        // Check if overflow (exceeds max_memory_size)
         int maxSize = ctx.getMetaModel().getGlobals().getMaxMemorySize();
-        if (action.getCondition() != null && count > maxSize) {
-            // TODO: implement overflow purge — sort by importance ASC, delete lowest
+
+        if (count > maxSize) {
+            // 溢出清理：触发衰减计算和生命周期检查
+            LOG.info("Memory overflow detected: {} / {} (max), triggering purge", count, maxSize);
+            runDecayAction();
         }
     }
 
@@ -186,7 +213,7 @@ public class TriggerMgr {
      */
     private Map<String, Object> buildConditionVariables() {
         Map<String, Object> vars = new HashMap<>();
-        vars.put("memory_count", new MemoryMgr(ctx).count());
+        vars.put("memory_count", memoryMgr.count());
 
         // Add globals
         var globals = ctx.getMetaModel().getGlobals();

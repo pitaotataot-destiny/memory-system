@@ -1,6 +1,10 @@
 package com.memory.engine.scheduler;
 
 import com.memory.spi.Scheduler;
+import com.memory.spi.SPI;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -16,7 +20,10 @@ import java.util.concurrent.TimeUnit;
  * Supports cron expressions (minute hour day month weekday),
  * fixed interval tasks, and graceful shutdown.
  */
+@SPI(name = "default", description = "Cron 定时调度（ScheduledExecutorService）")
 public class DefaultScheduler implements Scheduler {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DefaultScheduler.class);
 
     private ScheduledExecutorService executor;
 
@@ -75,6 +82,13 @@ public class DefaultScheduler implements Scheduler {
         }
     }
 
+    @Override
+    public void cancelAll() {
+        scheduledTasks.forEach(f -> f.cancel(true));
+        scheduledTasks.clear();
+        LOG.debug("Scheduler: all tasks cancelled for hot reload");
+    }
+
     // Parse cron expression to interval in milliseconds
     private long parseCronToIntervalMs(String cronExpression) {
         String[] parts = cronExpression.trim().split("\\s+");
@@ -110,7 +124,7 @@ public class DefaultScheduler implements Scheduler {
             try {
                 task.run();
             } catch (Exception e) {
-                System.err.println("[Scheduler] Task error (cron=" + cronExpression + "): " + e.getMessage());
+                LOG.error("[Scheduler] Task error (cron={}): {}", cronExpression, e.getMessage());
             }
         };
     }

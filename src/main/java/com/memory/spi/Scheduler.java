@@ -1,5 +1,7 @@
 package com.memory.spi;
 
+import com.memory.engine.scheduler.DefaultScheduler;
+
 /**
  * 调度器 SPI 扩展点。
  *
@@ -8,6 +10,8 @@ package com.memory.spi;
  *
  * 方法数：4
  */
+@SPI(name = "scheduler", description = "调度器扩展点",
+     defaultImpl = DefaultScheduler.class)
 public interface Scheduler {
 
     /**
@@ -31,4 +35,10 @@ public interface Scheduler {
      * 关闭调度器，停止所有定时任务。
      */
     void shutdown();
+
+    /**
+     * 取消所有已注册的定时任务（不关闭线程池）。
+     * 用于热更新时重新注册触发器。
+     */
+    void cancelAll();
 }

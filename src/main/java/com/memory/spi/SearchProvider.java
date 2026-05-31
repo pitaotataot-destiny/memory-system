@@ -11,6 +11,7 @@ import java.util.Map;
  *
  * 方法数：4
  */
+@SPI(name = "search-provider", description = "搜索提供者扩展点")
 public interface SearchProvider {
 
     /**

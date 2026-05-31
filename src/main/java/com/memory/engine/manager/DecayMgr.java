@@ -4,8 +4,12 @@ import com.memory.model.MetaModel;
 import com.memory.model.decay.DecayConfig;
 import com.memory.model.decay.DecayPolicy;
 import com.memory.model.decay.LifecycleConfig;
+import com.memory.model.type.MemoryType;
 import com.memory.runtime.MemoryRuntimeContext;
 import com.memory.spi.MemoryStore;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,10 +24,19 @@ import java.util.Set;
  */
 public class DecayMgr {
 
+    private static final Logger LOG = LoggerFactory.getLogger(DecayMgr.class);
+
     private final MemoryRuntimeContext ctx;
 
     public DecayMgr(MemoryRuntimeContext ctx) {
         this.ctx = ctx;
+    }
+
+    /**
+     * 获取配置的存储引擎名称（从 DSL globals.storage.engine 读取，不硬编码）。
+     */
+    private String getStoreName() {
+        return ctx.getMetaModel().getGlobals().getStorage().getEngine().getValue();
     }
 
     /**
@@ -35,7 +48,7 @@ public class DecayMgr {
      */
     public List<String> runDecay() {
         MetaModel model = ctx.getMetaModel();
-        MemoryStore store = ctx.getStore("json");
+        MemoryStore store = ctx.getStore(getStoreName());
         DecayPolicy decayPolicy = model.getDecay();
         if (decayPolicy == null) {
             return List.of();
@@ -55,11 +68,13 @@ public class DecayMgr {
             }
         }
 
+        LOG.debug("Decay calculation complete: {} memories processed, {} decayed",
+            allIds.size(), decayed.size());
         return decayed;
     }
 
     /**
-     * Check lifecycle status for a specific memory.
+     * Check lifecycle status for a specific memory (纯查询，无副作用)。
      * Determines if memory should be marked stale, archived, or purged.
      *
      * @param memoryId memory ID
@@ -67,7 +82,7 @@ public class DecayMgr {
      */
     public LifecycleStatus checkLifecycle(String memoryId) {
         MetaModel model = ctx.getMetaModel();
-        MemoryStore store = ctx.getStore("json");
+        MemoryStore store = ctx.getStore(getStoreName());
         LifecycleConfig lifecycle = model.getDecay().getLifecycle();
 
         String data = store.load(memoryId);
@@ -80,22 +95,21 @@ public class DecayMgr {
         long now = Instant.now().getEpochSecond();
         long daysSinceAccess = (now - lastAccessed) / 86400;
 
-        // Purge check (highest priority)
+        // Purge 条件检查（仅判断，不执行删除 — 删除由 runLifecycleCheck 负责）
         if (importance < lifecycle.getPurgeWhenImportanceBelow()) {
-            store.delete(memoryId);
-            return new LifecycleStatus("purged", "importance=" + importance + " < " + lifecycle.getPurgeWhenImportanceBelow());
+            return new LifecycleStatus("purged",
+                "importance=" + importance + " < " + lifecycle.getPurgeWhenImportanceBelow());
         }
         if (daysSinceAccess > lifecycle.getPurgeWhenStaleDays()) {
-            store.delete(memoryId);
             return new LifecycleStatus("purged", "stale for " + daysSinceAccess + " days");
         }
 
-        // Archive check
+        // Archive 检查
         if (daysSinceAccess > lifecycle.getArchiveAfterDays()) {
             return new LifecycleStatus("archive", "stale for " + daysSinceAccess + " days");
         }
 
-        // Stale check
+        // Stale 检查
         if (daysSinceAccess > lifecycle.getStaleAfterDays()) {
             return new LifecycleStatus("stale", "inactive for " + daysSinceAccess + " days");
         }
@@ -104,12 +118,13 @@ public class DecayMgr {
     }
 
     /**
-     * Run lifecycle check on all memories.
+     * Run lifecycle check on all memories, performing purge deletions.
+     * 遍历所有记忆，检查生命周期状态，对符合 purge 条件的执行物理删除。
      *
      * @return summary of actions taken
      */
     public LifecycleSummary runLifecycleCheck() {
-        MemoryStore store = ctx.getStore("json");
+        MemoryStore store = ctx.getStore(getStoreName());
         Set<String> allIds = store.listAll();
 
         int stale = 0, archived = 0, purged = 0;
@@ -118,16 +133,24 @@ public class DecayMgr {
             switch (status.status()) {
                 case "stale" -> stale++;
                 case "archive" -> archived++;
-                case "purged" -> purged++;
+                case "purged" -> {
+                    // 副作用统一在此执行，不在 checkLifecycle 中做
+                    store.delete(id);
+                    ctx.evictHot(id);
+                    purged++;
+                }
             }
         }
+        LOG.debug("Lifecycle check complete: total={}, stale={}, archived={}, purged={}",
+            allIds.size(), stale, archived, purged);
         return new LifecycleSummary(allIds.size(), stale, archived, purged);
     }
 
     /**
      * Apply decay formula to a single memory entry.
      * Formula: new_importance = old_importance * (daily_decay ^ delta_days) + access_gain
-     * Floors at min_importance.
+     * Uses type-specific decay config (从 DSL type_overrides 获取，含 fallback 到 default)。
+     * Floors at max(min_importance, type.importance_floor)。
      */
     private DecayResult applyDecay(String id, String data, DecayPolicy decayPolicy) {
         long lastAccessed = extractLastAccessed(data);
@@ -136,20 +159,29 @@ public class DecayMgr {
         long now = Instant.now().getEpochSecond();
         long deltaDays = Math.max(0, (now - lastAccessed) / 86400);
 
-        // Get decay config for this memory's type
-        DecayConfig config = decayPolicy.getDefaultConfig();
+        // 提取记忆类型，获取类型专属衰减配置（会 fallback 到 default）
+        String typeKind = extractType(data);
+        DecayConfig config = decayPolicy.getConfigForType(typeKind);
         if (config == null) {
             return null;
         }
 
-        // Apply decay formula
+        // 应用衰减公式
         double newImportance = currentImportance * Math.pow(config.getDailyDecay(), deltaDays);
 
-        // Add access gain (small bonus to prevent rapid decay)
+        // 添加访问增益
         newImportance += config.getAccessGain();
 
-        // Floor at min_importance
-        newImportance = Math.max(config.getMinImportance(), newImportance);
+        // 计算保底值：取 min_importance 与 type.importance_floor 的较大值
+        double floor = config.getMinImportance();
+        if (typeKind != null) {
+            MemoryType type = ctx.getMetaModel().getType(typeKind).orElse(null);
+            if (type != null && type.getMeta() != null) {
+                // type.importance_floor 与 decay.min_importance 取较大值作为保底
+                floor = Math.max(floor, type.getMeta().getImportanceFloor());
+            }
+        }
+        newImportance = Math.max(floor, newImportance);
 
         // Clamp to [0, 1]
         newImportance = Math.min(1.0, Math.max(0, newImportance));
@@ -159,6 +191,8 @@ public class DecayMgr {
 
         return new DecayResult(true, newData);
     }
+
+    // ── JSON 字段提取辅助方法 ──────────────────────────────
 
     /**
      * Extract _last_accessed timestamp from wrapped JSON.
@@ -194,6 +228,19 @@ public class DecayMgr {
         } catch (NumberFormatException e) {
             return 1.0;
         }
+    }
+
+    /**
+     * Extract _type from wrapped JSON.
+     * Returns null if not found (兼容旧数据或格式变化).
+     */
+    private String extractType(String data) {
+        int idx = data.indexOf("\"_type\":\"");
+        if (idx == -1) return null;
+        int start = idx + "\"_type\":\"".length();
+        int end = data.indexOf('"', start);
+        if (end == -1) return null;
+        return data.substring(start, end);
     }
 
     /**

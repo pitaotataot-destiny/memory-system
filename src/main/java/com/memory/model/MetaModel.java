@@ -6,7 +6,11 @@ import com.memory.model.search.SearchConfig;
 import com.memory.model.trigger.Trigger;
 import com.memory.model.type.MemoryType;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * 顶层 Meta Model — 所有 DSL 规则解析后的统一内部模型。

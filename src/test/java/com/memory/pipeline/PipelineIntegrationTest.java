@@ -10,7 +10,10 @@ import com.memory.spi.ExpressionEngine;
 import com.memory.spi.MemoryStore;
 import com.memory.spi.Scheduler;
 import com.memory.spi.SearchProvider;
+
 import org.junit.jupiter.api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -36,6 +39,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PipelineIntegrationTest {
 
+    private static final Logger log = LoggerFactory.getLogger(PipelineIntegrationTest.class);
+
     private static MetaModel model;
     private static ComponentRegistry registry;
     private static MemoryRuntimeContext context;
@@ -43,7 +48,7 @@ class PipelineIntegrationTest {
     @BeforeAll
     static void globalSetup() {
         // Phase 1
-        System.out.println("[Pipeline] Phase 1: Loading DSL...");
+        log.info("[Pipeline] Phase 1: Loading DSL...");
         DSLParser parser = new DSLParser();
         Path dslPath = Path.of("memory_dsl.yaml");
         if (!dslPath.toFile().exists()) {
@@ -52,43 +57,43 @@ class PipelineIntegrationTest {
         model = parser.parse(dslPath);
         assertNotNull(model);
         assertEquals("1.0", model.getVersion());
-        System.out.println("[Pipeline]   ✓ DSL parsed (version=" + model.getVersion() + ")");
-        System.out.println("[Pipeline]   ✓ Types: " + model.getTypes().keySet());
-        System.out.println("[Pipeline]   ✓ Search strategies: " + model.getSearch().getStrategies().keySet());
-        System.out.println("[Pipeline]   ✓ Triggers: " + model.getTriggers().size());
+        log.info("[Pipeline]   ✓ DSL parsed (version={})", model.getVersion());
+        log.info("[Pipeline]   ✓ Types: {}", model.getTypes().keySet());
+        log.info("[Pipeline]   ✓ Search strategies: {}", model.getSearch().getStrategies().keySet());
+        log.info("[Pipeline]   ✓ Triggers: {}", model.getTriggers().size());
 
         // Phase 2
-        System.out.println("[Pipeline] Phase 2: Assembling Registry...");
+        log.info("[Pipeline] Phase 2: Assembling Registry...");
         registry = new ComponentRegistry();
         registry.registerDefaultImplementations();
         registry.assemble(model);
         assertEquals(ComponentRegistry.State.STARTED, registry.getState());
-        System.out.println("[Pipeline]   ✓ Registry assembled (state=" + registry.getState() + ")");
-        System.out.println("[Pipeline]   ✓ Registered components: " + registry.getRegisteredKeys());
+        log.info("[Pipeline]   ✓ Registry assembled (state={})", registry.getState());
+        log.info("[Pipeline]   ✓ Registered components: {}", registry.getRegisteredKeys());
 
         // Phase 3
-        System.out.println("[Pipeline] Phase 3: Starting Runtime Context...");
+        log.info("[Pipeline] Phase 3: Starting Runtime Context...");
         context = new MemoryRuntimeContext(model, registry);
         context.start();
         assertTrue(context.isRunning());
-        System.out.println("[Pipeline]   ✓ Runtime Context started");
+        log.info("[Pipeline]   ✓ Runtime Context started");
     }
 
     @AfterAll
     static void globalTeardown() {
-        System.out.println("[Pipeline] Phase 9: Shutting down...");
+        log.info("[Pipeline] Phase 9: Shutting down...");
         if (context != null && context.isRunning()) {
             context.stop();
             assertFalse(context.isRunning());
         }
-        System.out.println("[Pipeline]   ✓ Runtime Context stopped");
+        log.info("[Pipeline]   ✓ Runtime Context stopped");
     }
 
     @Test
     @Order(1)
     @DisplayName("Phase 4: DSL 规则验证")
     void phase4_dslRulesAccessible() {
-        System.out.println("[Pipeline] Phase 4: Verifying DSL rules...");
+        log.info("[Pipeline] Phase 4: Verifying DSL rules...");
         MetaModel m = context.getMetaModel();
         assertTrue(m.getType("fact").isPresent());
         assertTrue(m.getType("preference").isPresent());
@@ -98,14 +103,14 @@ class PipelineIntegrationTest {
         assertEquals(0.92, m.getDecay().getDefaultConfig().getDailyDecay(), 0.001);
         assertNotNull(m.getSearch().getDefaultStrategy());
         assertFalse(m.getSearch().getDefaultStrategy().getSteps().isEmpty());
-        System.out.println("[Pipeline]   ✓ DSL rules accessible");
+        log.info("[Pipeline]   ✓ DSL rules accessible");
     }
 
     @Test
     @Order(2)
     @DisplayName("Phase 4: 搜索提供者工作正常")
     void phase4_searchProviderWorks() {
-        System.out.println("[Pipeline] Phase 4: Testing SearchProvider...");
+        log.info("[Pipeline] Phase 4: Testing SearchProvider...");
         SearchProvider keyword = registry.get("search:keyword");
         assertNotNull(keyword);
 
@@ -122,14 +127,14 @@ class PipelineIntegrationTest {
         assertTrue(ids.contains("mem-1"));
         assertTrue(ids.contains("mem-3"));
 
-        System.out.println("[Pipeline]   ✓ SearchProvider returned " + results.size() + " results");
+        log.info("[Pipeline]   ✓ SearchProvider returned {} results", results.size());
     }
 
     @Test
     @Order(3)
     @DisplayName("Phase 5: 存储引擎 — 保存/加载/删除")
     void phase5_storeWorks() {
-        System.out.println("[Pipeline] Phase 5: Testing MemoryStore...");
+        log.info("[Pipeline] Phase 5: Testing MemoryStore...");
         MemoryStore store = context.getStore("json");
         assertNotNull(store);
         assertEquals("json", store.name());
@@ -145,14 +150,14 @@ class PipelineIntegrationTest {
         assertTrue(store.delete("mem-1"));
         assertNull(store.load("mem-1"));
 
-        System.out.println("[Pipeline]   ✓ MemoryStore save/load/delete work");
+        log.info("[Pipeline]   ✓ MemoryStore save/load/delete work");
     }
 
     @Test
     @Order(4)
     @DisplayName("Phase 6: 调度器 — 注册/执行")
     void phase6_schedulerWorks() {
-        System.out.println("[Pipeline] Phase 6: Testing Scheduler...");
+        log.info("[Pipeline] Phase 6: Testing Scheduler...");
         Scheduler scheduler = context.getScheduler();
         assertNotNull(scheduler);
         assertEquals("default", scheduler.name());
@@ -173,14 +178,14 @@ class PipelineIntegrationTest {
         }
 
         assertTrue(count.get() >= 1);
-        System.out.println("[Pipeline]   ✓ Scheduler executed task (count=" + count.get() + ")");
+        log.info("[Pipeline]   ✓ Scheduler executed task (count={})", count.get());
     }
 
     @Test
     @Order(5)
     @DisplayName("Phase 7: 表达式引擎 — 条件求值")
     void phase7_expressionWorks() {
-        System.out.println("[Pipeline] Phase 7: Testing ExpressionEngine...");
+        log.info("[Pipeline] Phase 7: Testing ExpressionEngine...");
         ExpressionEngine engine = context.getExpressionEngine();
         assertNotNull(engine);
         assertEquals("default", engine.name());
@@ -194,14 +199,14 @@ class PipelineIntegrationTest {
         assertTrue(engine.evaluate("memory_count > globals.max_memory_size", vars));
         assertFalse(engine.evaluate("memory_count < 1000", vars));
 
-        System.out.println("[Pipeline]   ✓ ExpressionEngine evaluated conditions");
+        log.info("[Pipeline]   ✓ ExpressionEngine evaluated conditions");
     }
 
     @Test
     @Order(6)
     @DisplayName("Phase 8: 事件总线 — 发布/订阅")
     void phase7_eventBusWorks() {
-        System.out.println("[Pipeline] Phase 7: Testing EventBus...");
+        log.info("[Pipeline] Phase 7: Testing EventBus...");
         EventBus eventBus = registry.get("eventbus:local");
         assertNotNull(eventBus);
         assertEquals("local", eventBus.name());
@@ -220,14 +225,14 @@ class PipelineIntegrationTest {
         assertEquals("memory_created", received.get(0).type());
         assertEquals("mem-1", received.get(0).memoryId());
 
-        System.out.println("[Pipeline]   ✓ EventBus delivered event: type=" + received.get(0).type());
+        log.info("[Pipeline]   ✓ EventBus delivered event: type={}", received.get(0).type());
     }
 
     @Test
     @Order(6)
     @DisplayName("Phase 8: 统计指标")
     void phase8_metricsTrackable() {
-        System.out.println("[Pipeline] Phase 8: Testing Metrics...");
+        log.info("[Pipeline] Phase 8: Testing Metrics...");
         assertEquals(0, context.getTotalQueries());
         assertEquals(0, context.getTotalWrites());
         assertEquals(0, context.getTotalErrors());
@@ -239,30 +244,29 @@ class PipelineIntegrationTest {
         assertEquals(2, context.getTotalQueries());
         assertEquals(1, context.getTotalWrites());
 
-        System.out.println("[Pipeline]   ✓ Metrics: queries=" + context.getTotalQueries()
-            + ", writes=" + context.getTotalWrites()
-            + ", errors=" + context.getTotalErrors());
+        log.info("[Pipeline]   ✓ Metrics: queries={}, writes={}, errors={}",
+            context.getTotalQueries(), context.getTotalWrites(), context.getTotalErrors());
     }
 
     @Test
     @Order(7)
     @DisplayName("Phase 8: 热缓存")
     void phase8_hotCacheWorks() {
-        System.out.println("[Pipeline] Phase 8: Testing Hot Cache...");
+        log.info("[Pipeline] Phase 8: Testing Hot Cache...");
         String memId = "hot-mem-1";
         assertFalse(context.isHot(memId));
         context.markHot(memId, 0.85);
         assertTrue(context.isHot(memId));
         context.evictHot(memId);
         assertFalse(context.isHot(memId));
-        System.out.println("[Pipeline]   ✓ Hot Cache operations work");
+        log.info("[Pipeline]   ✓ Hot Cache operations work");
     }
 
     @Test
     @Order(8)
     @DisplayName("Phase 8: MetaModel 热更新")
     void phase8_hotUpdateWorks() {
-        System.out.println("[Pipeline] Phase 8: Testing Hot Update...");
+        log.info("[Pipeline] Phase 8: Testing Hot Update...");
         int originalMaxSize = context.getMetaModel().getGlobals().getMaxMemorySize();
 
         MetaModel newModel = new MetaModel();
@@ -281,6 +285,6 @@ class PipelineIntegrationTest {
         assertEquals(99999, context.getMetaModel().getGlobals().getMaxMemorySize());
         assertEquals("1.1", context.getMetaModel().getVersion());
 
-        System.out.println("[Pipeline]   ✓ Hot Update: maxSize " + originalMaxSize + " → 99999");
+        log.info("[Pipeline]   ✓ Hot Update: maxSize {} → 99999", originalMaxSize);
     }
 }

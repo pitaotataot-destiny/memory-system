@@ -1,6 +1,7 @@
 package com.memory.engine.store;
 
 import com.memory.spi.MemoryStore;
+import com.memory.spi.SPI;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +23,7 @@ import java.util.stream.Stream;
  *     mem-2.json
  *     ...
  */
+@SPI(name = "json", description = "JSON 文件存储 + 内存索引")
 public class JsonMemoryStore implements MemoryStore {
 
     // 默认数据目录

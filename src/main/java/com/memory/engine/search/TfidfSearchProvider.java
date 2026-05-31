@@ -1,14 +1,19 @@
 package com.memory.engine.search;
 
 import com.memory.spi.SearchProvider;
+import com.memory.spi.SPI;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * TF-IDF 统计搜索提供者 — 词频-逆文档频率排序。
  * 实现 SearchProvider SPI 接口，由 Registry 按 DSL 声明装配。
  */
+@SPI(name = "tfidf", description = "TF-IDF 词频统计排序")
 public class TfidfSearchProvider implements SearchProvider {
 
     // 文档集合：memoryId → 词频映射
@@ -17,8 +22,8 @@ public class TfidfSearchProvider implements SearchProvider {
     // 文档频率：term → 包含该词的文档数
     private final Map<String, Integer> docFreq = new ConcurrentHashMap<>();
 
-    // 总文档数
-    private volatile int totalDocs = 0;
+    // 总文档数（AtomicInteger 保证并发 index() 原子性）
+    private final AtomicInteger totalDocs = new AtomicInteger(0);
 
     @Override
     public String name() {
@@ -41,7 +46,7 @@ public class TfidfSearchProvider implements SearchProvider {
         for (String token : termFreq.keySet()) {
             docFreq.merge(token, 1, Integer::sum);
         }
-        totalDocs++;
+        totalDocs.incrementAndGet();
     }
 
     @Override
@@ -53,7 +58,7 @@ public class TfidfSearchProvider implements SearchProvider {
             int df = docFreq.getOrDefault(qToken, 0);
             if (df == 0) continue;
             // IDF = log(N / df)
-            double idf = Math.log((double) totalDocs / df);
+            double idf = Math.log((double) totalDocs.get() / df);
 
             for (Map.Entry<String, Map<String, Integer>> docEntry : docTermFreq.entrySet()) {
                 Integer tf = docEntry.getValue().get(qToken);

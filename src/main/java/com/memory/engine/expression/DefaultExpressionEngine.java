@@ -1,6 +1,7 @@
 package com.memory.engine.expression;
 
 import com.memory.spi.ExpressionEngine;
+import com.memory.spi.SPI;
 
 import java.util.Map;
 
@@ -9,17 +10,18 @@ import java.util.Map;
  * Implements ExpressionEngine SPI interface.
  *
  * Supported operators:
- *   - Comparison: ==, !=, >, <, >=, <=
- *   - Logical: &&, ||, !
- *   - Arithmetic: +, -, *, /
+ *   - Comparison: {@code ==}, {@code !=}, {@code >}, {@code <}, {@code >=}, {@code <=}
+ *   - Logical: {@code &&}, {@code ||}, {@code !}
+ *   - Arithmetic: {@code +}, {@code -}, {@code *}, {@code /}
  *   - Variable references: globals.max_memory_size, memory_count, etc.
  *
  * Examples:
- *   "memory_count > 5000"
- *   "memory.importance < 0.1"
- *   "memory_count > globals.max_memory_size"
- *   "!memory.active && memory.type == 'fact'"
+ *   "memory_count {@code >} 5000"
+ *   "memory.importance {@code <} 0.1"
+ *   "memory_count {@code >} globals.max_memory_size"
+ *   {@code "!memory.active && memory.type == 'fact'"}
  */
+@SPI(name = "default", description = "轻量表达式解析器（比较/逻辑运算符）")
 public class DefaultExpressionEngine implements ExpressionEngine {
 
     @Override
@@ -113,6 +115,7 @@ public class DefaultExpressionEngine implements ExpressionEngine {
     /**
      * Evaluate a single comparison: left op right.
      * Supported operators: ==, !=, >=, <=, >, <
+     * Supports both numeric and string comparisons.
      */
     private Object evaluateComparison(String expr, Map<String, Object> variables) {
         // Find comparison operator
@@ -123,44 +126,56 @@ public class DefaultExpressionEngine implements ExpressionEngine {
                 String leftStr = expr.substring(0, idx).trim();
                 String rightStr = expr.substring(idx + op.length()).trim();
 
-                Number left = resolveValue(leftStr, variables);
-                Number right = resolveValue(rightStr, variables);
+                Object left = resolveValue(leftStr, variables);
+                Object right = resolveValue(rightStr, variables);
 
                 if (left == null || right == null) {
                     return false;
                 }
 
-                double lv = left.doubleValue();
-                double rv = right.doubleValue();
+                // 数值比较
+                if (left instanceof Number && right instanceof Number) {
+                    double lv = ((Number) left).doubleValue();
+                    double rv = ((Number) right).doubleValue();
+                    return switch (op) {
+                        case "==" -> lv == rv;
+                        case "!=" -> lv != rv;
+                        case ">=" -> lv >= rv;
+                        case "<=" -> lv <= rv;
+                        case ">" -> lv > rv;
+                        case "<" -> lv < rv;
+                        default -> false;
+                    };
+                }
 
+                // 字符串比较（仅支持 == 和 !=）
+                String ls = left.toString();
+                String rs = right.toString();
                 return switch (op) {
-                    case "==" -> lv == rv;
-                    case "!=" -> lv != rv;
-                    case ">=" -> lv >= rv;
-                    case "<=" -> lv <= rv;
-                    case ">" -> lv > rv;
-                    case "<" -> lv < rv;
-                    default -> false;
+                    case "==" -> ls.equals(rs);
+                    case "!=" -> !ls.equals(rs);
+                    default -> false;  // 字符串不支持 > / < / >= / <=
                 };
             }
         }
 
         // No comparison operator found, treat as a single value
-        Number val = resolveValue(expr, variables);
-        return val != null ? val : false;
+        Object val = resolveValue(expr, variables);
+        if (val instanceof Boolean) return val;
+        if (val instanceof Number) return ((Number) val).doubleValue() != 0;
+        return val != null;
     }
 
     /**
-     * Resolve a value from expression — could be a number literal or a variable reference.
+     * Resolve a value from expression — could be a number literal, string literal, or variable reference.
      */
-    private Number resolveValue(String expr, Map<String, Object> variables) {
+    private Object resolveValue(String expr, Map<String, Object> variables) {
         expr = expr.trim();
 
-        // Remove quotes for string literals
+        // String literal with single or double quotes
         if ((expr.startsWith("'") && expr.endsWith("'")) ||
             (expr.startsWith("\"") && expr.endsWith("\""))) {
-            // String literal — return NaN so comparisons fail gracefully
-            return Double.NaN;
+            return expr.substring(1, expr.length() - 1);  // 去掉引号，返回字符串
         }
 
         // Try parsing as number
@@ -173,10 +188,10 @@ public class DefaultExpressionEngine implements ExpressionEngine {
         // Variable reference (supports dotted paths like "globals.max_memory_size")
         if (variables != null) {
             Object value = resolveVariable(expr, variables);
-            if (value instanceof Number) return (Number) value;
-            if (value instanceof String) {
-                try { return Double.parseDouble((String) value); } catch (NumberFormatException ignored) {}
-            }
+            if (value instanceof Number) return value;
+            if (value instanceof String) return value;
+            if (value instanceof Boolean) return value;
+            if (value != null) return value.toString();
         }
 
         return null;
@@ -234,7 +249,7 @@ public class DefaultExpressionEngine implements ExpressionEngine {
     /**
      * Exception thrown when expression evaluation fails.
      */
-    public static class ExpressionEvaluationException extends RuntimeException {
+    public static class ExpressionEvaluationException extends com.memory.MemorySystemException {
         public ExpressionEvaluationException(String message, Throwable cause) {
             super(message, cause);
         }

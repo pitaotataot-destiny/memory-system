@@ -1,5 +1,7 @@
 package com.memory.spi;
 
+import com.memory.engine.event.LocalEventBus;
+
 import java.util.function.Consumer;
 
 /**
@@ -10,6 +12,8 @@ import java.util.function.Consumer;
  *
  * 方法数：3
  */
+@SPI(name = "event-bus", description = "事件总线扩展点",
+     defaultImpl = LocalEventBus.class)
 public interface EventBus {
 
     /**
@@ -29,6 +33,11 @@ public interface EventBus {
      * @param event 事件对象
      */
     void publish(Event event);
+
+    /**
+     * 清除所有订阅，用于热更新时重置触发器绑定。
+     */
+    void clearSubscriptions();
 
     /**
      * 事件数据。

@@ -1,5 +1,7 @@
 package com.memory.spi;
 
+import com.memory.engine.store.JsonMemoryStore;
+
 /**
  * 存储层 SPI 扩展点。
  *
@@ -8,6 +10,8 @@ package com.memory.spi;
  *
  * 方法数：6（接口隔离，不设计胖接口）
  */
+@SPI(name = "memory-store", description = "存储层扩展点",
+     defaultImpl = JsonMemoryStore.class)
 public interface MemoryStore {
 
     /**

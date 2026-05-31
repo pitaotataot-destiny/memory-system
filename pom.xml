@@ -4,24 +4,43 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.memory</groupId>
+    <!-- 继承父 POM：自动获得 Checkstyle / JaCoCo / SpotBugs / Javadoc 全套门禁 -->
+    <parent>
+        <groupId>com.memory</groupId>
+        <artifactId>memory-build-parent</artifactId>
+        <version>1.0</version>
+        <relativePath>../memory-build-parent</relativePath>
+    </parent>
+
     <artifactId>memory-system</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
+    <name>Memory System</name>
+    <description>基于声明式 DSL 的记忆管理系统</description>
 
+    <!-- 项目专属属性 -->
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <snakeyaml.version>2.3</snakeyaml.version>
         <junit.version>5.11.0</junit.version>
     </properties>
 
+    <!-- 项目专属依赖（插件从父 POM 继承，无需在此声明） -->
     <dependencies>
         <dependency>
             <groupId>org.yaml</groupId>
             <artifactId>snakeyaml</artifactId>
             <version>${snakeyaml.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.16</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.5.12</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -31,16 +50,18 @@
         </dependency>
     </dependencies>
 
+    <!-- 项目专属覆盖 -->
     <build>
         <plugins>
+            <!-- Checkstyle：引用父模块的规则文件（避免两份副本） -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <artifactId>maven-checkstyle-plugin</artifactId>
                 <configuration>
-                <jvm>${env.JAVA17_HOME}/bin/java</jvm>
+                    <configLocation>../memory-build-parent/checkstyle.xml</configLocation>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
 </project>

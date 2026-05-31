@@ -1,5 +1,7 @@
 package com.memory.spi;
 
+import com.memory.engine.expression.DefaultExpressionEngine;
+
 import java.util.Map;
 
 /**
@@ -10,6 +12,8 @@ import java.util.Map;
  *
  * 方法数：2
  */
+@SPI(name = "expression-engine", description = "表达式解析扩展点",
+     defaultImpl = DefaultExpressionEngine.class)
 public interface ExpressionEngine {
 
     /**

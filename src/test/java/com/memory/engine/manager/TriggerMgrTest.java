@@ -38,9 +38,9 @@ class TriggerMgrTest {
         registry.assemble(model);
         ctx = new MemoryRuntimeContext(model, registry);
         ctx.start();
-        DecayMgr decayMgr = new DecayMgr(ctx);
-        mgr = new TriggerMgr(ctx, decayMgr);
         memoryMgr = new MemoryMgr(ctx);
+        DecayMgr decayMgr = new DecayMgr(ctx);
+        mgr = new TriggerMgr(ctx, memoryMgr, decayMgr);
     }
 
     @AfterEach

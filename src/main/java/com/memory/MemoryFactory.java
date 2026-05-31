@@ -24,7 +24,7 @@ public final class MemoryFactory {
     public static MemoryClient create(Path dslPath) {
         DSLParser parser = new DSLParser();
         MetaModel model = parser.parse(dslPath);
-        return new MemoryClient(model);
+        return new MemoryClient(model, dslPath);
     }
 
     /**

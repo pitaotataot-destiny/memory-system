@@ -1,13 +1,15 @@
 package com.memory.engine.manager;
 
-import com.memory.model.search.EngineConfig;
 import com.memory.model.search.SearchStep;
 import com.memory.model.search.SearchStrategy;
 import com.memory.runtime.MemoryRuntimeContext;
-import com.memory.spi.MemoryStore;
 import com.memory.spi.SearchProvider;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -71,11 +73,7 @@ public class SearchMgr {
             int topK = step.getTopK();
             List<SearchProvider.SearchResult> rawResults = provider.search(query, topK);
 
-            // If previous steps already have results and this step has fallback, skip
-            if (step.isFallback() && !hasAnyResults(stepResults)) {
-                // This step is a fallback, only run if previous steps had no results
-                // Actually: fallback means skip this step if previous steps HAVE results
-            }
+            // 如果此步骤标记为 fallback 且之前步骤已有结果，则跳过
             if (step.isFallback() && hasAnyResults(stepResults)) {
                 continue;
             }
@@ -130,14 +128,68 @@ public class SearchMgr {
             }
         }
 
+        // Apply type filters from DSL configuration
+        List<SearchResult> filtered = applyTypeFilters(merged.values());
+
         // Sort by score descending
-        List<SearchResult> sorted = merged.values().stream()
+        List<SearchResult> sorted = filtered.stream()
             .sorted(Comparator.comparingDouble(SearchResult::rawScore).reversed())
             .collect(Collectors.toList());
 
         // Apply limit
         int limit = strategy.getLimit();
         return sorted.subList(0, Math.min(limit, sorted.size()));
+    }
+
+    /**
+     * 应用 DSL type_filters 按记忆类型过滤搜索结果。
+     * - include 非空：仅保留类型在 include 列表中的记忆
+     * - exclude 非空：排除类型在 exclude 列表中的记忆
+     */
+    private List<SearchResult> applyTypeFilters(java.util.Collection<SearchResult> results) {
+        var searchConfig = ctx.getMetaModel().getSearch();
+        if (searchConfig == null || searchConfig.getTypeFiltersInclude() == null) {
+            return new ArrayList<>(results);
+        }
+
+        List<String> include = searchConfig.getTypeFiltersInclude();
+        List<String> exclude = searchConfig.getTypeFiltersExclude();
+
+        // 两者都为空，不过滤
+        boolean hasInclude = include != null && !include.isEmpty();
+        boolean hasExclude = exclude != null && !exclude.isEmpty();
+        if (!hasInclude && !hasExclude) {
+            return new ArrayList<>(results);
+        }
+
+        var store = ctx.getStore(
+            ctx.getMetaModel().getGlobals().getStorage().getEngine().getValue());
+
+        return results.stream().filter(r -> {
+            String json = store.load(r.memoryId());
+            if (json == null) return false;
+            String type = parseMetaType(json);
+            if (type == null) return true; // 未标记类型的旧数据不过滤
+
+            // exclude 优先
+            if (hasExclude && exclude.contains(type)) return false;
+            // include：空列表 = 全部通过
+            if (hasInclude && !include.contains(type)) return false;
+            return true;
+        }).collect(Collectors.toList());
+    }
+
+    /**
+     * 从记忆包装 JSON 中提取 _type 元数据字段。
+     */
+    private static String parseMetaType(String json) {
+        String key = "\"_type\":\"";
+        int idx = json.indexOf(key);
+        if (idx < 0) return null;
+        idx += key.length();
+        int end = json.indexOf('"', idx);
+        if (end < 0) return null;
+        return json.substring(idx, end);
     }
 
     /**

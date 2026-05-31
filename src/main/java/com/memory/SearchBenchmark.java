@@ -1,16 +1,21 @@
 package com.memory;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Arrays;
+import java.util.HashSet;
 
 /**
  * 搜索性能基准测试。
  * 在不同数据规模下测试 keyword 搜索的耗时。
  */
 public class SearchBenchmark {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SearchBenchmark.class);
 
     private static final int[] SIZES = {100, 500, 1000, 5000};
 
@@ -61,7 +66,7 @@ public class SearchBenchmark {
     };
 
     public static void main(String[] args) throws Exception {
-        System.out.println("=== Memory System Search Benchmark ===\n");
+        LOG.info("=== Memory System Search Benchmark ===");
 
         for (int size : SIZES) {
             benchmark(size);
@@ -74,7 +79,7 @@ public class SearchBenchmark {
 
         String yaml = yamlTemplate(safePath);
 
-        // 阶段 2: 搜索 (warmup + measured) — 同一个 client 实例
+        // write + warmup + measured search
         try (MemoryClient client = MemoryFactory.createFromString(yaml)) {
             long writeStart = System.currentTimeMillis();
             for (int i = 0; i < size; i++) {
@@ -101,9 +106,11 @@ public class SearchBenchmark {
             Arrays.sort(times);
             long median = times[2];
 
-            System.out.printf("N=%-6d | write=%5d ms | search=median %-6d us " +
-                              "(min=%d, max=%d) | results=%d%n",
-                size, writeTime, median, times[0], times[4], resultCount);
+            LOG.info("N={} | write={} ms | search=median {} us (min={}, max={}) | results={}",
+                String.format("%-6d", size),
+                String.format("%5d", writeTime),
+                String.format("%-6d", median),
+                times[0], times[4], resultCount);
         }
 
         // Cleanup

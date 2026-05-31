@@ -1,11 +1,21 @@
 package com.memory.dsl;
 
 import com.memory.model.MetaModel;
-import com.memory.model.decay.*;
-import com.memory.model.enums.*;
+import com.memory.model.decay.DecayConfig;
+import com.memory.model.decay.DecayPolicy;
+import com.memory.model.decay.LifecycleConfig;
+import com.memory.model.enums.ActionKind;
+import com.memory.model.enums.MemoryTypeKind;
+import com.memory.model.enums.MergeStrategy;
+import com.memory.model.enums.SearchEngineKind;
+import com.memory.model.enums.StorageEngine;
+import com.memory.model.enums.TriggerEvent;
 import com.memory.model.globals.Globals;
 import com.memory.model.globals.StorageConfig;
-import com.memory.model.search.*;
+import com.memory.model.search.EngineConfig;
+import com.memory.model.search.SearchConfig;
+import com.memory.model.search.SearchStep;
+import com.memory.model.search.SearchStrategy;
 import com.memory.model.constraint.FieldConstraint;
 import com.memory.model.constraint.TagConstraint;
 import com.memory.model.constraint.TypeMeta;
@@ -18,7 +28,12 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * DSL 解析器 — YAML → MetaModel。

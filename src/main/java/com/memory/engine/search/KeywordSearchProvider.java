@@ -1,14 +1,20 @@
 package com.memory.engine.search;
 
 import com.memory.spi.SearchProvider;
+import com.memory.spi.SPI;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 关键词匹配搜索提供者 — 精确字面匹配。
  * 实现 SearchProvider SPI 接口，由 Registry 按 DSL 声明装配。
  */
+@SPI(name = "keyword", description = "关键词字面匹配（倒排索引）")
 public class KeywordSearchProvider implements SearchProvider {
 
     // 简易倒排索引：term → [memoryId, ...]

@@ -1,8 +1,12 @@
 package com.memory.engine.search;
 
 import com.memory.spi.SearchProvider;
+import com.memory.spi.SPI;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -11,7 +15,14 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * 当前为框架预留（向量计算未实现），待引入 sentence-transformers Java 绑定后补全。
  */
+@SPI(name = "embedding", description = "向量语义搜索（余弦相似度）")
 public class EmbeddingSearchProvider implements SearchProvider {
+
+    private static final double DEFAULT_SIMILARITY_THRESHOLD = 0.65;
+    private static final int EMBEDDING_DIMENSION = 768;
+    private static final int DUMMY_VEC_HASH_MOD = 1000;
+    private static final double DUMMY_VEC_HASH_DIVISOR = 1000.0;
+    private static final double DUMMY_VEC_HASH_OFFSET = 0.5;
 
     // 记忆 ID → 向量（占位，后续替换为 float[]）
     private final Map<String, float[]> vectorStore = new ConcurrentHashMap<>();
@@ -19,7 +30,7 @@ public class EmbeddingSearchProvider implements SearchProvider {
     // DSL 配置参数
     private String model = "";
     private String similarity = "cosine";
-    private double threshold = 0.65;
+    private double threshold = DEFAULT_SIMILARITY_THRESHOLD;
 
     @Override
     public String name() {
@@ -30,7 +41,7 @@ public class EmbeddingSearchProvider implements SearchProvider {
     public void init(Map<String, Object> engineParams) {
         this.model = (String) engineParams.getOrDefault("model", "");
         this.similarity = (String) engineParams.getOrDefault("similarity", "cosine");
-        this.threshold = asDouble(engineParams.get("threshold"), 0.65);
+        this.threshold = asDouble(engineParams.get("threshold"), DEFAULT_SIMILARITY_THRESHOLD);
         // 后续：加载 embedding 模型到 cache_dir
     }
 
@@ -80,11 +91,11 @@ public class EmbeddingSearchProvider implements SearchProvider {
      * 后续替换为真实 embedding 模型。
      */
     private float[] dummyEmbed(String text) {
-        int dim = 768;
-        float[] vec = new float[dim];
+        float[] vec = new float[EMBEDDING_DIMENSION];
         int hash = text.hashCode();
-        for (int i = 0; i < dim; i++) {
-            vec[i] = (float) (((hash * (i + 1)) % 1000) / 1000.0 - 0.5);
+        for (int i = 0; i < EMBEDDING_DIMENSION; i++) {
+            vec[i] = (float) (((hash * (i + 1)) % DUMMY_VEC_HASH_MOD)
+                / DUMMY_VEC_HASH_DIVISOR - DUMMY_VEC_HASH_OFFSET);
         }
         return vec;
     }

@@ -3,8 +3,21 @@ package com.memory.registry;
 import com.memory.model.MetaModel;
 import com.memory.model.enums.SearchEngineKind;
 import com.memory.model.enums.StorageEngine;
+import com.memory.spi.EventBus;
+import com.memory.spi.ExpressionEngine;
+import com.memory.spi.MemoryStore;
+import com.memory.spi.Scheduler;
+import com.memory.spi.SearchProvider;
 
-import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -17,6 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *   4. 依赖校验：DSL 声明了但 SPI 找不到实现 → 启动失败
  */
 public class ComponentRegistry {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ComponentRegistry.class);
 
     // 组件生命周期状态
     public enum State {
@@ -48,7 +63,7 @@ public class ComponentRegistry {
         }
         this.metaModel = model;
 
-        // 阶段 1：SPI 扫描
+        // 阶段 1：SPI 扫描 — 从 META-INF/services 加载所有实现类
         scanSpiImplementations();
 
         // 阶段 2：注册存储引擎
@@ -57,33 +72,29 @@ public class ComponentRegistry {
         // 阶段 3：注册搜索引擎
         registerSearchProviders();
 
-        // 阶段 4：注册事件总线
+        // 阶段 4：注册事件总线 / 调度器 / 表达式引擎
         registerEventBus();
+        registerScheduler();
+        registerExpressionEngine();
 
         // 阶段 5：生命周期 init → start
         initAll();
         startAll();
 
         state = State.STARTED;
+        LOG.info("ComponentRegistry assembled successfully: {} components", components.size());
     }
 
     /**
-     * SPI 扫描：从 classpath 加载所有已知 SPI 接口的实现。
+     * SPI 扫描：从 classpath META-INF/services 加载所有已知 SPI 接口的实现。
      */
     private void scanSpiImplementations() {
-        // 只扫描尚未手动注册的 SPI 接口
-        if (!spiImplementations.containsKey("com.memory.spi.MemoryStore")) {
-            List<Class<?>> storeImpls = loadSpiClasses("com.memory.spi.MemoryStore");
-            spiImplementations.put("com.memory.spi.MemoryStore", storeImpls);
-        }
-        if (!spiImplementations.containsKey("SearchProvider")) {
-            List<Class<?>> searchImpls = loadSpiClasses("com.memory.spi.SearchProvider");
-            spiImplementations.put("SearchProvider", searchImpls);
-        }
-        if (!spiImplementations.containsKey("EventBus")) {
-            List<Class<?>> eventBusImpls = loadSpiClasses("com.memory.spi.EventBus");
-            spiImplementations.put("EventBus", eventBusImpls);
-        }
+        // 扫描所有 5 个 SPI 接口
+        loadSpiClasses("com.memory.spi.MemoryStore");
+        loadSpiClasses("com.memory.spi.SearchProvider");
+        loadSpiClasses("com.memory.spi.EventBus");
+        loadSpiClasses("com.memory.spi.Scheduler");
+        loadSpiClasses("com.memory.spi.ExpressionEngine");
     }
 
     /**
@@ -96,13 +107,16 @@ public class ComponentRegistry {
         StorageEngine engine = metaModel.getGlobals().getStorage().getEngine();
         if (engine == null) return;
         String key = "store:" + engine.getValue();
-        components.putIfAbsent(key, PLACEHOLDER); // placeholder, replaced when SPI is implemented
+        components.putIfAbsent(key, PLACEHOLDER);
     }
 
     /**
      * 注册搜索提供者 — 按 MetaModel.search.engines 声明。
      */
     private void registerSearchProviders() {
+        if (metaModel.getSearch() == null || metaModel.getSearch().getEngines() == null) {
+            return;
+        }
         metaModel.getSearch().getEngines().forEach((name, engineConfig) -> {
             if (!engineConfig.isEnabled()) {
                 return;
@@ -120,7 +134,7 @@ public class ComponentRegistry {
                 );
             }
 
-            components.putIfAbsent(key, PLACEHOLDER); // placeholder, replaced when SPI is implemented
+            components.putIfAbsent(key, PLACEHOLDER);
         });
     }
 
@@ -136,22 +150,160 @@ public class ComponentRegistry {
                 "Add a com.memory.spi.EventBus implementation."
             );
         }
-        components.putIfAbsent(key, PLACEHOLDER); // placeholder, replaced when SPI is implemented
+        components.putIfAbsent(key, PLACEHOLDER);
     }
 
     /**
-     * 生命周期：初始化所有组件。
+     * 注册调度器。
+     */
+    private void registerScheduler() {
+        String key = "scheduler:default";
+        List<Class<?>> impls = spiImplementations.get("com.memory.spi.Scheduler");
+        if (impls == null || impls.isEmpty()) {
+            throw new RegistryException(
+                "Scheduler is required but no SPI implementation found."
+            );
+        }
+        components.putIfAbsent(key, PLACEHOLDER);
+    }
+
+    /**
+     * 注册表达式引擎。
+     */
+    private void registerExpressionEngine() {
+        String key = "expression:default";
+        List<Class<?>> impls = spiImplementations.get("com.memory.spi.ExpressionEngine");
+        if (impls == null || impls.isEmpty()) {
+            throw new RegistryException(
+                "ExpressionEngine is required but no SPI implementation found."
+            );
+        }
+        components.putIfAbsent(key, PLACEHOLDER);
+    }
+
+    /**
+     * 生命周期：初始化所有占位组件。
+     * 遍历 PLACEHOLDER 标记的 key，用 SPI 实现类实例化并调用 init()。
+     * 如果 registerDefaultImplementations() 已注册了实例（非 PLACEHOLDER），则跳过。
      */
     private void initAll() {
-        // 遍历已注册组件，调用 init()（SPI 实现后填充）
+        for (Map.Entry<String, Object> entry : components.entrySet()) {
+            String key = entry.getKey();
+            if (entry.getValue() != PLACEHOLDER) continue;
+
+            Object instance = null;
+            try {
+                if (key.startsWith("store:")) {
+                    instance = initStore(key);
+                } else if (key.startsWith("search:")) {
+                    instance = initSearchProvider(key);
+                } else if (key.startsWith("eventbus:")) {
+                    instance = initEventBus();
+                } else if (key.startsWith("scheduler:")) {
+                    instance = initScheduler();
+                } else if (key.startsWith("expression:")) {
+                    instance = initExpressionEngine();
+                }
+
+                if (instance != null) {
+                    components.put(key, instance);
+                    LOG.debug("Initialized component: {}", key);
+                } else {
+                    throw new RegistryException(
+                        "No matching SPI implementation for key: " + key);
+                }
+            } catch (ReflectiveOperationException e) {
+                throw new RegistryException(
+                    "Failed to instantiate SPI implementation for: " + key, e);
+            }
+        }
     }
 
     /**
-     * 生命周期：启动所有组件。
+     * 生命周期：启动所有组件（预留，当前无组件需要 start 操作）。
      */
     private void startAll() {
-        // 遍历已注册组件，调用 start()（SPI 实现后填充）
+        // 预留：后续可在此处理 start 逻辑（如连接池预热、后台线程启动等）
+        LOG.debug("ComponentRegistry: startAll complete");
     }
+
+    // ── 组件实例化辅助方法 ──────────────────────────────────
+
+    /**
+     * 实例化并初始化存储引擎。
+     */
+    private Object initStore(String key) throws ReflectiveOperationException {
+        String storeName = key.substring("store:".length());
+        List<Class<?>> impls = spiImplementations.get("com.memory.spi.MemoryStore");
+        if (impls == null) return null;
+
+        for (Class<?> implClass : impls) {
+            MemoryStore store = (MemoryStore) implClass.getDeclaredConstructor().newInstance();
+            if (store.name().equals(storeName)) {
+                store.init();
+                return store;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 实例化并初始化搜索提供者。
+     * 从 DSL search.engines.<name>.params 获取配置参数，传入 init(Map)。
+     */
+    private Object initSearchProvider(String key) throws ReflectiveOperationException {
+        String engineName = key.substring("search:".length());
+        List<Class<?>> impls = spiImplementations.get("com.memory.spi.SearchProvider");
+        if (impls == null) return null;
+
+        for (Class<?> implClass : impls) {
+            SearchProvider provider = (SearchProvider) implClass.getDeclaredConstructor().newInstance();
+            if (provider.name().equals(engineName)) {
+                // 从 DSL 配置中获取引擎专属参数
+                Map<String, Object> params = Collections.emptyMap();
+                if (metaModel.getSearch() != null && metaModel.getSearch().getEngines() != null) {
+                    var engineConfig = metaModel.getSearch().getEngines().get(engineName);
+                    if (engineConfig != null && engineConfig.getParams() != null) {
+                        params = engineConfig.getParams();
+                    }
+                }
+                provider.init(params);
+                return provider;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 实例化事件总线（默认使用第一个可用实现）。
+     */
+    private Object initEventBus() throws ReflectiveOperationException {
+        List<Class<?>> impls = spiImplementations.get("com.memory.spi.EventBus");
+        if (impls == null || impls.isEmpty()) return null;
+        return impls.get(0).getDeclaredConstructor().newInstance();
+    }
+
+    /**
+     * 实例化调度器。
+     */
+    private Object initScheduler() throws ReflectiveOperationException {
+        List<Class<?>> impls = spiImplementations.get("com.memory.spi.Scheduler");
+        if (impls == null || impls.isEmpty()) return null;
+        Scheduler scheduler = (Scheduler) impls.get(0).getDeclaredConstructor().newInstance();
+        scheduler.init();
+        return scheduler;
+    }
+
+    /**
+     * 实例化表达式引擎。
+     */
+    private Object initExpressionEngine() throws ReflectiveOperationException {
+        List<Class<?>> impls = spiImplementations.get("com.memory.spi.ExpressionEngine");
+        if (impls == null || impls.isEmpty()) return null;
+        return impls.get(0).getDeclaredConstructor().newInstance();
+    }
+
+    // ── 公共 API ────────────────────────────────────────────
 
     /**
      * 按 key 获取已注册的组件实例。
@@ -175,8 +327,9 @@ public class ComponentRegistry {
     }
 
     /**
-     * 批量注册默认 SPI 实现（测试用）。
-     * 直接实例化组件并注册到 components，而非仅注册 SPI 类。
+     * 批量注册默认 SPI 实现。
+     * 直接实例化组件并注册到 components，用于无需 ServiceLoader 的快速启动。
+     * 调用此方法后 assemble() 中的 initAll 会跳过这些已注册的组件。
      */
     public void registerDefaultImplementations() {
         // 注册存储引擎
@@ -218,23 +371,20 @@ public class ComponentRegistry {
         components.put("expression:default", expressionEngine);
 
         // 同时注册 SPI 类（供 assemble 时校验使用）
-        spiImplementations.put("com.memory.spi.MemoryStore", List.of(
-            com.memory.engine.store.JsonMemoryStore.class
-        ));
-        spiImplementations.put("com.memory.spi.SearchProvider", List.of(
-            com.memory.engine.search.KeywordSearchProvider.class,
-            com.memory.engine.search.TfidfSearchProvider.class,
-            com.memory.engine.search.EmbeddingSearchProvider.class
-        ));
-        spiImplementations.put("com.memory.spi.EventBus", List.of(
-            com.memory.engine.event.LocalEventBus.class
-        ));
-        spiImplementations.put("com.memory.spi.Scheduler", List.of(
-            com.memory.engine.scheduler.DefaultScheduler.class
-        ));
-        spiImplementations.put("com.memory.spi.ExpressionEngine", List.of(
-            com.memory.engine.expression.DefaultExpressionEngine.class
-        ));
+        registerSpiImplementation("com.memory.spi.MemoryStore",
+            com.memory.engine.store.JsonMemoryStore.class);
+        registerSpiImplementation("com.memory.spi.SearchProvider",
+            com.memory.engine.search.KeywordSearchProvider.class);
+        registerSpiImplementation("com.memory.spi.SearchProvider",
+            com.memory.engine.search.TfidfSearchProvider.class);
+        registerSpiImplementation("com.memory.spi.SearchProvider",
+            com.memory.engine.search.EmbeddingSearchProvider.class);
+        registerSpiImplementation("com.memory.spi.EventBus",
+            com.memory.engine.event.LocalEventBus.class);
+        registerSpiImplementation("com.memory.spi.Scheduler",
+            com.memory.engine.scheduler.DefaultScheduler.class);
+        registerSpiImplementation("com.memory.spi.ExpressionEngine",
+            com.memory.engine.expression.DefaultExpressionEngine.class);
     }
 
     /**
@@ -272,11 +422,21 @@ public class ComponentRegistry {
 
     /**
      * 加载指定 SPI 接口的实现类列表。
-     * 使用 ServiceLoader 扫描 META-INF/services。
+     * 使用 ServiceLoader 扫描 META-INF/services 目录。
      */
-    private List<Class<?>> loadSpiClasses(String interfaceName) {
-        // 后续实现：ServiceLoader.load(Class.forName(interfaceName))
-        // 当前返回空列表，待 SPI 接口定义后填充
-        return new ArrayList<>();
+    private void loadSpiClasses(String interfaceName) {
+        try {
+            Class<?> spiClass = Class.forName(interfaceName);
+            List<Class<?>> impls = new ArrayList<>();
+            for (Object impl : ServiceLoader.load(spiClass)) {
+                impls.add(impl.getClass());
+            }
+            if (!impls.isEmpty()) {
+                spiImplementations.put(interfaceName, impls);
+                LOG.debug("ServiceLoader found {} implementations for {}", impls.size(), interfaceName);
+            }
+        } catch (ClassNotFoundException e) {
+            LOG.warn("SPI interface not found on classpath: {}", interfaceName);
+        }
     }
 }

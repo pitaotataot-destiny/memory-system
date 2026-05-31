@@ -1,6 +1,9 @@
 package com.memory.model.search;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 搜索配置 Meta Model
