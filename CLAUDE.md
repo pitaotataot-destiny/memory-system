@@ -2,9 +2,17 @@
 
 ## 项目介绍
 
-基于声明式 DSL 的记忆管理系统。行为规则（类型定义、衰减策略、搜索策略、触发器）用 `memory_dsl.yaml` 描述，运行时解析为 MetaModel，引擎只消费模型对象，不直接读 YAML。
+基于声明式 DSL 的记忆管理系统。行为规则用 `memory_dsl.yaml` 描述，运行时解析为 MetaModel。
 
-**核心目标：改规则不改代码。** 新增类型、调整衰减、切换搜索策略，只改 YAML，不改 Java。
+**核心目标：改规则不改代码。**
+
+### 三层架构
+
+| 层 | 入口 | 输入 | 谁做决策 |
+|---|------|------|---------|
+| Layer 3 Agent | `MemoryAgent.ingest(rawText)` | 原始自然语言 | **系统自主** |
+| Layer 2 Engine | `MemoryClient.create(type, data)` | 结构化 JSON | 调用方决定 |
+| Layer 1 Store | JsonMemoryStore | JSON 字符串 | — |
 
 ## 技术栈
 
@@ -13,6 +21,7 @@
 | Java | 17+ | 主语言 |
 | Maven | 4.0.0 | 构建工具 |
 | SnakeYAML | 2.3 | YAML 解析 |
+| Jackson | 2.18.3 | JSON 序列化 |
 | JUnit Jupiter | 5.11 | 单元测试 |
 
 ## 架构约束
@@ -21,6 +30,7 @@
 
 | 层 | 性质 | 生命周期 | 类比 |
 |---|------|----------|------|
+| Agent (L3) | 自主决策 | 每次 ingest 请求 | AI 助手 |
 | MetaModel | 静态声明 | 启动时解析一次 | 配置清单 |
 | Registry | 装配工厂 | 启动时装配一次 | 接线板 |
 | Runtime Context | 运行状态 | 整个运行时（可热更新） | 工作台 |
@@ -28,10 +38,18 @@
 
 ### 依赖方向（单向，禁止反向）
 
-- Engine → Runtime Context → Registry → MetaModel
-- Engine 实现 → SPI 接口（实现 SearchProvider / MemoryStore / EventBus）
+- Agent → MemoryClient → Engine → Runtime Context → Registry → MetaModel
+- Engine 实现 → SPI 接口（SearchProvider / MemoryStore / EventBus）
+- Agent 实现 → Agent SPI（IntentClassifier / InformationExtractor / ...）
 - DSL → MetaModel（构建）
-- Runtime Context → Engine 实现（直接调用）
+
+### Agent SPI 规范
+
+- Agent SPI 接口放 `com.memory.agent.spi`，默认实现放 `com.memory.agent.engine`
+- Agent 管道步骤放 `com.memory.agent.pipeline`，用组合模式
+- 管道分同步段（阻塞返回结果）和异步段（后台冲突检测）
+- LLM 实现必须有无密钥自动降级能力
+- 分类+提取均为 LLM 时自动合并为一次调用（CombinedClassifyExtractStep）
 
 ## 编码规范
 
