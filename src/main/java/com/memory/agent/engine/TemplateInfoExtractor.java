@@ -47,10 +47,10 @@ public class TemplateInfoExtractor implements InformationExtractor {
             fields.put("content", rawText.trim());
         }
 
-        // 提取 #标签
-        extractTags(rawText, tags);
+        // 提取显式 #标签
+        extractHashTags(rawText, tags);
 
-        // 如果类型有 field_hints 但字段为空，填充默认值
+        // 填充默认值
         fillDefaults(fields, type);
 
         return new ExtractedInfo(fields, tags);
@@ -74,9 +74,9 @@ public class TemplateInfoExtractor implements InformationExtractor {
     }
 
     /**
-     * 从文本中提取 #标签 格式的标签。
+     * 从文本中提取显式 #标签。
      */
-    private void extractTags(String text, Set<String> tags) {
+    private void extractHashTags(String text, Set<String> tags) {
         int idx = 0;
         while (idx < text.length()) {
             int hash = text.indexOf('#', idx);

@@ -366,8 +366,13 @@ agent:
 
   # ── 信息提取 ──
   extraction:
-    # 提取引擎：template（模板提取，默认）
-    engine: "template"
+    # 提取引擎：template（模板提取，默认）| llm（LLM 提取字段+标签）
+    engine: "llm"
+    # LLM 引擎专属参数（仅 engine=llm 时生效）:
+    # params:
+    #   endpoint: "https://api.openai.com/v1/chat/completions"
+    #   model: "gpt-4o-mini"
+    #   api_key_env: "OPENAI_API_KEY"
 
   # ── 冲突检测 ──
   conflict:

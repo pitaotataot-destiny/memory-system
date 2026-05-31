@@ -1,1 +1,2 @@
 com.memory.agent.engine.TemplateInfoExtractor
+com.memory.agent.engine.LlmInfoExtractor

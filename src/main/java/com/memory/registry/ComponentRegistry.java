@@ -488,8 +488,12 @@ public class ComponentRegistry {
         // 信息提取器
         components.put("agent:extract:template",
             new com.memory.agent.engine.TemplateInfoExtractor());
+        components.put("agent:extract:llm",
+            new com.memory.agent.engine.LlmInfoExtractor());
         registerSpiImplementation("com.memory.agent.spi.InformationExtractor",
             com.memory.agent.engine.TemplateInfoExtractor.class);
+        registerSpiImplementation("com.memory.agent.spi.InformationExtractor",
+            com.memory.agent.engine.LlmInfoExtractor.class);
 
         // 冲突检测器
         components.put("agent:conflict:field-compare",
