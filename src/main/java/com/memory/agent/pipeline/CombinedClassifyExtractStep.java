@@ -230,6 +230,14 @@ class CombinedClassifyExtractStep implements PipelineStep {
             confidence = FALLBACK_CONFIDENCE;
         }
 
+        // 按类型标签约束截断
+        MemoryType type = metaModel.getType(typeKind).orElse(null);
+        int maxTags = type != null && type.getTags() != null ? type.getTags().getMax() : 20;
+        if (tags.size() > maxTags) {
+            List<String> truncated = new ArrayList<>(tags);
+            tags = new LinkedHashSet<>(truncated.subList(0, maxTags));
+        }
+
         ctx.setTypeKind(typeKind);
         ctx.setConfidence(confidence);
         ctx.setExtractedFields(fields);
