@@ -23,6 +23,10 @@ public class MemoryMgr {
 
     private final MemoryRuntimeContext ctx;
 
+    // JSON 包装结构中的固定前缀长度
+    private static final int DATA_FIELD_PREFIX_LEN = "\"_data\":{".length();  // = 9
+    private static final int CONTENT_KEY_PREFIX_LEN = "\"content\":\"".length();  // = 10
+
     public MemoryMgr(MemoryRuntimeContext ctx) {
         this.ctx = ctx;
     }
@@ -72,6 +76,9 @@ public class MemoryMgr {
         store.save(id, wrapped);
         ctx.incrementWrites();
 
+        // 缓存类型（避免搜索过滤时逐条磁盘 IO）
+        ctx.cacheType(id, resolvedKind);
+
         // 自动索引到所有搜索引擎
         indexForSearch(id, wrapped, tags);
 
@@ -99,11 +106,9 @@ public class MemoryMgr {
         String data = store.load(id);
         if (data != null) {
             ctx.incrementQueries();
-            // 真正更新 last_accessed 和 importance
-            String updated = applyAccessUpdate(data);
-            store.save(id, updated);
-            ctx.incrementWrites();
-            return updated;
+            // 在内存中更新访问时间（避免每次 read 都写盘）
+            ctx.touchAccess(id, Instant.now().getEpochSecond());
+            return data;
         }
         return null;
     }
@@ -434,13 +439,13 @@ public class MemoryMgr {
     private String extractContent(String data) {
         int start = data.indexOf("\"_data\":{");
         if (start < 0) return data;
-        start += 9;  // "\"_data\":{".length()
+        start += DATA_FIELD_PREFIX_LEN;
         int end = data.indexOf("}", start);
         if (end < 0) return data;
         String inner = data.substring(start, end + 1);
         int cs = inner.indexOf("\"content\":\"");
         if (cs < 0) return inner;
-        cs += 10;  // "\"content\":\"".length()
+        cs += CONTENT_KEY_PREFIX_LEN;
         int ce = inner.indexOf("\"", cs);
         return ce > cs ? inner.substring(cs, ce) : inner;
     }

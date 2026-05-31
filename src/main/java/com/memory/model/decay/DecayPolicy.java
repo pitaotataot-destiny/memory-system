@@ -21,17 +21,19 @@ public class DecayPolicy {
     public void setLifecycle(LifecycleConfig lifecycle) { this.lifecycle = lifecycle; }
 
     /**
-     * 获取指定类型的衰减配置（含 fallback 到 default）
+     * 获取指定类型的衰减配置（含 fallback 到 default）。
+     * override 中未设置的字段自动从 default 继承。
      */
     public DecayConfig getConfigForType(String typeKind) {
         DecayConfig override = typeOverrides.get(typeKind);
         if (override == null) {
             return defaultConfig;
         }
+        // 合并：override 有效值优先，null 则继承 default
         DecayConfig merged = new DecayConfig();
-        merged.setDailyDecay(override.getDailyDecay());
-        merged.setAccessGain(override.getAccessGain());
-        merged.setMinImportance(override.getMinImportance());
+        merged.setDailyDecay(override.getDailyDecay(defaultConfig.getDailyDecay()));
+        merged.setAccessGain(override.getAccessGain(defaultConfig.getAccessGain()));
+        merged.setMinImportance(override.getMinImportance(defaultConfig.getMinImportance()));
         return merged;
     }
 }

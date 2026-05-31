@@ -3,8 +3,6 @@ package com.memory.registry;
 import com.memory.model.MetaModel;
 import com.memory.model.enums.SearchEngineKind;
 import com.memory.model.enums.StorageEngine;
-import com.memory.spi.EventBus;
-import com.memory.spi.ExpressionEngine;
 import com.memory.spi.MemoryStore;
 import com.memory.spi.Scheduler;
 import com.memory.spi.SearchProvider;

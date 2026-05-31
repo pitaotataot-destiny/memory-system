@@ -52,6 +52,12 @@ public class MemoryRuntimeContext {
     // L0 热记忆缓存（key=memoryId, value=importance）
     private final java.util.Map<String, Double> hotCache = new java.util.concurrent.ConcurrentHashMap<>();
 
+    // 类型缓存（memoryId → typeKind）— 避免搜索过滤时逐条磁盘 IO
+    private final java.util.Map<String, String> typeCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    // 访问时间追踪器（memoryId → lastAccessed epoch second）— 避免 read() 时写盘
+    private final java.util.Map<String, Long> accessTracker = new java.util.concurrent.ConcurrentHashMap<>();
+
     // 统计指标
     private final AtomicLong totalQueries = new AtomicLong(0);
     private final AtomicLong totalWrites = new AtomicLong(0);
@@ -234,6 +240,9 @@ public class MemoryRuntimeContext {
      */
     public void evictHot(String memoryId) {
         hotCache.remove(memoryId);
+        // 同步清理类型缓存和访问追踪
+        typeCache.remove(memoryId);
+        accessTracker.remove(memoryId);
     }
 
     /**
@@ -241,6 +250,38 @@ public class MemoryRuntimeContext {
      */
     public boolean isHot(String memoryId) {
         return hotCache.containsKey(memoryId);
+    }
+
+    // ── 类型缓存（避免搜索过滤时逐条 IO）─────────────────
+
+    /**
+     * 缓存记忆类型，创建时写入。
+     */
+    public void cacheType(String memoryId, String typeKind) {
+        typeCache.put(memoryId, typeKind);
+    }
+
+    /**
+     * 获取缓存的记忆类型，无缓存返回 null。
+     */
+    public String getCachedType(String memoryId) {
+        return typeCache.get(memoryId);
+    }
+
+    // ── 访问时间追踪（避免 read() 写盘）────────────────────
+
+    /**
+     * 更新访问时间（内存操作，不写盘）。
+     */
+    public void touchAccess(String memoryId, long epochSecond) {
+        accessTracker.put(memoryId, epochSecond);
+    }
+
+    /**
+     * 获取追踪的访问时间，无记录返回 0。
+     */
+    public long getTrackedAccess(String memoryId) {
+        return accessTracker.getOrDefault(memoryId, 0L);
     }
 
     // ── 统计指标 ──────────────────────────────────────

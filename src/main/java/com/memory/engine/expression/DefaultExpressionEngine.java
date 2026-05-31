@@ -118,52 +118,64 @@ public class DefaultExpressionEngine implements ExpressionEngine {
      * Supports both numeric and string comparisons.
      */
     private Object evaluateComparison(String expr, Map<String, Object> variables) {
-        // Find comparison operator
         String[] ops = {"==", "!=", ">=", "<=", ">", "<"};
         for (String op : ops) {
             int idx = findOperator(expr, op);
             if (idx > 0) {
                 String leftStr = expr.substring(0, idx).trim();
                 String rightStr = expr.substring(idx + op.length()).trim();
-
-                Object left = resolveValue(leftStr, variables);
-                Object right = resolveValue(rightStr, variables);
-
-                if (left == null || right == null) {
-                    return false;
-                }
-
-                // 数值比较
-                if (left instanceof Number && right instanceof Number) {
-                    double lv = ((Number) left).doubleValue();
-                    double rv = ((Number) right).doubleValue();
-                    return switch (op) {
-                        case "==" -> lv == rv;
-                        case "!=" -> lv != rv;
-                        case ">=" -> lv >= rv;
-                        case "<=" -> lv <= rv;
-                        case ">" -> lv > rv;
-                        case "<" -> lv < rv;
-                        default -> false;
-                    };
-                }
-
-                // 字符串比较（仅支持 == 和 !=）
-                String ls = left.toString();
-                String rs = right.toString();
-                return switch (op) {
-                    case "==" -> ls.equals(rs);
-                    case "!=" -> !ls.equals(rs);
-                    default -> false;  // 字符串不支持 > / < / >= / <=
-                };
+                return performCompare(op, leftStr, rightStr, variables);
             }
         }
-
         // No comparison operator found, treat as a single value
         Object val = resolveValue(expr, variables);
         if (val instanceof Boolean) return val;
         if (val instanceof Number) return ((Number) val).doubleValue() != 0;
         return val != null;
+    }
+
+    /**
+     * 执行单次比较操作，支持数值和字符串两种模式。
+     */
+    private Object performCompare(String op, String leftStr, String rightStr,
+                                   Map<String, Object> variables) {
+        Object left = resolveValue(leftStr, variables);
+        Object right = resolveValue(rightStr, variables);
+        if (left == null || right == null) {
+            return false;
+        }
+
+        // 数值比较
+        if (left instanceof Number && right instanceof Number) {
+            double lv = ((Number) left).doubleValue();
+            double rv = ((Number) right).doubleValue();
+            return compareNumeric(op, lv, rv);
+        }
+
+        // 字符串比较（仅支持 == 和 !=）
+        return compareString(op, left.toString(), right.toString());
+    }
+
+    /** 数值比较 */
+    private static boolean compareNumeric(String op, double lv, double rv) {
+        return switch (op) {
+            case "==" -> lv == rv;
+            case "!=" -> lv != rv;
+            case ">=" -> lv >= rv;
+            case "<=" -> lv <= rv;
+            case ">" -> lv > rv;
+            case "<" -> lv < rv;
+            default -> false;
+        };
+    }
+
+    /** 字符串比较（仅支持 == 和 !=） */
+    private static boolean compareString(String op, String ls, String rs) {
+        return switch (op) {
+            case "==" -> ls.equals(rs);
+            case "!=" -> !ls.equals(rs);
+            default -> false;
+        };
     }
 
     /**

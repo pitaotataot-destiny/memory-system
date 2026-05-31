@@ -103,33 +103,68 @@ public class SearchMgr {
 
     /**
      * Merge results from all steps according to the merge strategy.
-     * Default: weighted_score — sum of weighted scores.
+     *
+     * 支持的合并策略：
+     *   weighted_score — 按权重累加分数合并（默认）
+     *   dedup          — 按 ID 去重，保留首个引擎的结果
+     *   concat         — 按步骤顺序直接拼接
+     *   direct         — 仅返回首个步骤的结果
      */
     private List<SearchResult> mergeResults(List<Map<String, SearchResult>> stepResults,
                                             com.memory.model.search.SearchStrategy strategy) {
-        // Combine all results by memory ID, summing scores
-        Map<String, SearchResult> merged = new LinkedHashMap<>();
-        for (Map<String, SearchResult> stepResult : stepResults) {
-            for (Map.Entry<String, SearchResult> entry : stepResult.entrySet()) {
-                String id = entry.getKey();
-                SearchResult newResult = entry.getValue();
+        var merge = strategy.getMerge();
+        List<SearchResult> combined;
 
-                SearchResult existing = merged.get(id);
-                if (existing != null) {
-                    // Sum scores (weighted merge)
-                    merged.put(id, new SearchResult(
-                        id,
-                        existing.rawScore() + newResult.rawScore(),
-                        existing.source() + "," + newResult.source()
-                    ));
-                } else {
-                    merged.put(id, newResult);
+        switch (merge) {
+            case DEDUP -> {
+                // 按 ID 去重：首次出现的保留，后续忽略
+                Map<String, SearchResult> deduped = new LinkedHashMap<>();
+                for (Map<String, SearchResult> stepResult : stepResults) {
+                    for (Map.Entry<String, SearchResult> entry : stepResult.entrySet()) {
+                        deduped.putIfAbsent(entry.getKey(), entry.getValue());
+                    }
                 }
+                combined = new ArrayList<>(deduped.values());
+            }
+            case CONCAT -> {
+                // 直接拼接：保持步骤顺序
+                combined = new ArrayList<>();
+                for (Map<String, SearchResult> stepResult : stepResults) {
+                    combined.addAll(stepResult.values());
+                }
+            }
+            case DIRECT -> {
+                // 仅首个步骤的结果
+                combined = new ArrayList<>();
+                if (!stepResults.isEmpty()) {
+                    combined.addAll(stepResults.get(0).values());
+                }
+            }
+            default -> {
+                // WEIGHTED_SCORE：按权重累加分数
+                Map<String, SearchResult> scored = new LinkedHashMap<>();
+                for (Map<String, SearchResult> stepResult : stepResults) {
+                    for (Map.Entry<String, SearchResult> entry : stepResult.entrySet()) {
+                        String id = entry.getKey();
+                        SearchResult newResult = entry.getValue();
+                        SearchResult existing = scored.get(id);
+                        if (existing != null) {
+                            scored.put(id, new SearchResult(
+                                id,
+                                existing.rawScore() + newResult.rawScore(),
+                                existing.source() + "," + newResult.source()
+                            ));
+                        } else {
+                            scored.put(id, newResult);
+                        }
+                    }
+                }
+                combined = new ArrayList<>(scored.values());
             }
         }
 
         // Apply type filters from DSL configuration
-        List<SearchResult> filtered = applyTypeFilters(merged.values());
+        List<SearchResult> filtered = applyTypeFilters(combined);
 
         // Sort by score descending
         List<SearchResult> sorted = filtered.stream()
@@ -138,7 +173,10 @@ public class SearchMgr {
 
         // Apply limit
         int limit = strategy.getLimit();
-        return sorted.subList(0, Math.min(limit, sorted.size()));
+        if (limit <= 0 || limit >= sorted.size()) {
+            return sorted;
+        }
+        return sorted.subList(0, limit);
     }
 
     /**
@@ -162,13 +200,20 @@ public class SearchMgr {
             return new ArrayList<>(results);
         }
 
-        var store = ctx.getStore(
-            ctx.getMetaModel().getGlobals().getStorage().getEngine().getValue());
-
         return results.stream().filter(r -> {
-            String json = store.load(r.memoryId());
-            if (json == null) return false;
-            String type = parseMetaType(json);
+            // 优先从内存缓存获取类型（避免搜索时逐条磁盘 IO）
+            String type = ctx.getCachedType(r.memoryId());
+            if (type == null) {
+                // 缓存未命中时 fallback 到磁盘（旧数据初次加载场景）
+                var store = ctx.getStore(
+                    ctx.getMetaModel().getGlobals().getStorage().getEngine().getValue());
+                String json = store.load(r.memoryId());
+                if (json == null) return false;
+                type = parseMetaType(json);
+                if (type != null) {
+                    ctx.cacheType(r.memoryId(), type);  // 填充缓存
+                }
+            }
             if (type == null) return true; // 未标记类型的旧数据不过滤
 
             // exclude 优先

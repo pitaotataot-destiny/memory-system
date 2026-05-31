@@ -26,6 +26,11 @@ public class DecayMgr {
 
     private static final Logger LOG = LoggerFactory.getLogger(DecayMgr.class);
 
+    // 衰减公式默认参数（作为 getter fallback 值的兜底常量）
+    private static final double FALLBACK_DAILY_DECAY = 0.92;
+    private static final double FALLBACK_ACCESS_GAIN = 0.05;
+    private static final double FALLBACK_MIN_IMPORTANCE = 0.1;
+
     private final MemoryRuntimeContext ctx;
 
     public DecayMgr(MemoryRuntimeContext ctx) {
@@ -90,7 +95,7 @@ public class DecayMgr {
             return new LifecycleStatus("not_found");
         }
 
-        long lastAccessed = extractLastAccessed(data);
+        long lastAccessed = extractLastAccessed(memoryId, data);
         double importance = extractImportance(data);
         long now = Instant.now().getEpochSecond();
         long daysSinceAccess = (now - lastAccessed) / 86400;
@@ -153,7 +158,7 @@ public class DecayMgr {
      * Floors at max(min_importance, type.importance_floor)。
      */
     private DecayResult applyDecay(String id, String data, DecayPolicy decayPolicy) {
-        long lastAccessed = extractLastAccessed(data);
+        long lastAccessed = extractLastAccessed(id, data);
         double currentImportance = extractImportance(data);
 
         long now = Instant.now().getEpochSecond();
@@ -166,14 +171,15 @@ public class DecayMgr {
             return null;
         }
 
-        // 应用衰减公式
-        double newImportance = currentImportance * Math.pow(config.getDailyDecay(), deltaDays);
+        // 应用衰减公式（含 fallback 默认值兜底）
+        double newImportance = currentImportance
+            * Math.pow(config.getDailyDecay(FALLBACK_DAILY_DECAY), deltaDays);
 
         // 添加访问增益
-        newImportance += config.getAccessGain();
+        newImportance += config.getAccessGain(FALLBACK_ACCESS_GAIN);
 
         // 计算保底值：取 min_importance 与 type.importance_floor 的较大值
-        double floor = config.getMinImportance();
+        double floor = config.getMinImportance(FALLBACK_MIN_IMPORTANCE);
         if (typeKind != null) {
             MemoryType type = ctx.getMetaModel().getType(typeKind).orElse(null);
             if (type != null && type.getMeta() != null) {
@@ -198,7 +204,15 @@ public class DecayMgr {
      * Extract _last_accessed timestamp from wrapped JSON.
      * Returns 0 if not found.
      */
-    private long extractLastAccessed(String data) {
+    /**
+     * 从 JSON 提取 _last_accessed，优先用内存中的访问追踪器。
+     */
+    private long extractLastAccessed(String id, String data) {
+        // 优先使用内存访问追踪器（read() 更新的最新值）
+        long tracked = ctx.getTrackedAccess(id);
+        if (tracked > 0) return tracked;
+
+        // fallback 到 JSON 中存储的时间戳
         int idx = data.indexOf("\"_last_accessed\":");
         if (idx == -1) return 0;
         int start = idx + "\"_last_accessed\":".length();

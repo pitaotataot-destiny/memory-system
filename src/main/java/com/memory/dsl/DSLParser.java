@@ -278,9 +278,7 @@ public class DSLParser {
             ta.setAction(ActionKind.fromValue((String) thenRaw.get("action")));
             ta.setTarget((String) thenRaw.getOrDefault("target", "all"));
             ta.setOrderBy((String) thenRaw.get("order_by"));
-            if (thenRaw.get("limit") != null) {
-                ta.setLimit(asInt(thenRaw.get("limit")));
-            }
+            ta.setLimit(asInt(thenRaw.get("limit"), 100));
             ta.setRule((String) thenRaw.get("rule"));
             ta.setCondition((String) thenRaw.get("condition"));
             t.setThen(ta);
@@ -328,12 +326,6 @@ public class DSLParser {
 
     private int asInt(Object value, int defaultValue) {
         if (value == null) return defaultValue;
-        if (value instanceof Number) return ((Number) value).intValue();
-        return Integer.parseInt(String.valueOf(value));
-    }
-
-    private int asInt(Object value) {
-        if (value == null) throw new DSLParseException("Value is null for required int");
         if (value instanceof Number) return ((Number) value).intValue();
         return Integer.parseInt(String.valueOf(value));
     }
