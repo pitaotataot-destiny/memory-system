@@ -86,7 +86,12 @@ public class LlmInfoExtractor implements InformationExtractor {
         }
 
         if (this.apiKey == null || this.apiKey.isBlank()) {
-            LOG.warn("LLM InfoExtractor: no API key. Falling back to template extractor.");
+            LOG.warn("LLM InfoExtractor: no API key. Tried env={}. "
+                + "Set OPENAI_API_KEY env var or -DOPENAI_API_KEY=sk-xxx JVM arg.",
+                keyEnv);
+        } else {
+            LOG.info("LLM InfoExtractor: API key loaded from {}",
+                System.getenv(keyEnv) != null ? "env " + keyEnv : "system property");
         }
 
         this.httpClient = HttpClient.newBuilder()

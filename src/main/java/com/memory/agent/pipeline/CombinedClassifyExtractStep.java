@@ -86,7 +86,15 @@ class CombinedClassifyExtractStep implements PipelineStep {
         this.apiKey = key;
 
         if (this.apiKey == null || this.apiKey.isBlank()) {
-            LOG.warn("CombinedClassifyExtract: no API key, using fallback");
+            LOG.warn("CombinedClassifyExtract: no API key. "
+                + "Tried env={} and system property. Set OPENAI_API_KEY env var "
+                + "or -DOPENAI_API_KEY=sk-xxx JVM arg.", keyEnv);
+        } else {
+            LOG.info("CombinedClassifyExtract: API key loaded from {} ({}...{})",
+                directKey != null ? "params" : System.getenv(keyEnv) != null
+                    ? "env " + keyEnv : "system property " + keyEnv,
+                this.apiKey.substring(0, Math.min(7, this.apiKey.length())),
+                this.apiKey.substring(Math.max(0, this.apiKey.length() - 4)));
         }
 
         this.httpClient = HttpClient.newBuilder()

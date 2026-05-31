@@ -91,9 +91,13 @@ public class LlmIntentClassifier implements IntentClassifier {
         }
 
         if (this.apiKey == null || this.apiKey.isBlank()) {
-            LOG.warn("LLM IntentClassifier: no API key found. "
-                + "Set env var {} or system property {}. Falling back to keyword classifier.",
-                keyEnv, keyEnv);
+            LOG.warn("LLM IntentClassifier: no API key. "
+                + "Tried env={} and -D{}. Set OPENAI_API_KEY env var "
+                + "or add -DOPENAI_API_KEY=sk-xxx to JVM args.", keyEnv, keyEnv);
+        } else {
+            LOG.info("LLM IntentClassifier: API key loaded ({}...{})",
+                this.apiKey.substring(0, Math.min(7, this.apiKey.length())),
+                this.apiKey.substring(Math.max(0, this.apiKey.length() - 4)));
         }
 
         this.httpClient = HttpClient.newBuilder()

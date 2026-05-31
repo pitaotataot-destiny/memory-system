@@ -315,6 +315,13 @@ public class MemoryAgentServer {
         int port = Integer.parseInt(System.getProperty("memory.server.port",
             System.getenv().getOrDefault("MEMORY_SERVER_PORT", "8080")));
 
+        // 将环境变量中的 API key 同步到系统属性（确保 LLM 组件能读到）
+        String apiKey = System.getenv("OPENAI_API_KEY");
+        if (apiKey != null && !apiKey.isBlank()) {
+            System.setProperty("OPENAI_API_KEY", apiKey);
+            LOG.info("OPENAI_API_KEY loaded from environment");
+        }
+
         LOG.info("Starting Memory Agent from DSL: {}", dslPath);
         MemoryAgent agent = MemoryAgentFactory.create(Path.of(dslPath));
         MemoryAgentServer server = new MemoryAgentServer(host, port, agent);
