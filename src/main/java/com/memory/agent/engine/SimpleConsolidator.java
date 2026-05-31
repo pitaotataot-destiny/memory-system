@@ -19,6 +19,7 @@ import java.util.Map;
 public class SimpleConsolidator implements MemoryConsolidator {
 
     private static final double SIMILARITY_THRESHOLD = 0.75;
+    private static final double DEFAULT_SIMILARITY_SCORE = 0.8;
     private static final int MAX_GROUP_SIZE = 5;
 
     @Override
@@ -63,7 +64,7 @@ public class SimpleConsolidator implements MemoryConsolidator {
 
                 if (groupIds.size() >= 2) {
                     candidates.add(new ConsolidationCandidate(
-                        groupIds, 0.8,
+                        groupIds, DEFAULT_SIMILARITY_SCORE,
                         "同类型 '" + entry.getKey() + "' 内容相似"
                     ));
                 }

@@ -94,8 +94,16 @@ public class IngestPipeline {
         return result;
     }
 
-    /** 关闭异步执行器 */
+    /** 关闭异步执行器，等待 3 秒让正在执行的任务完成 */
     public void shutdown() {
         asyncExecutor.shutdown();
+        try {
+            if (!asyncExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                asyncExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            asyncExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

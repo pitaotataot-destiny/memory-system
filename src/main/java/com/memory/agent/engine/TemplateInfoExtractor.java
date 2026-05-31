@@ -82,8 +82,8 @@ public class TemplateInfoExtractor implements InformationExtractor {
             int hash = text.indexOf('#', idx);
             if (hash < 0) break;
             int end = hash + 1;
-            while (end < text.length() && Character.isLetterOrDigit(text.charAt(end))
-                || text.charAt(end) == '_' || text.charAt(end) == '-') {
+            while (end < text.length() && (Character.isLetterOrDigit(text.charAt(end))
+                || text.charAt(end) == '_' || text.charAt(end) == '-')) {
                 end++;
             }
             if (end > hash + 1) {

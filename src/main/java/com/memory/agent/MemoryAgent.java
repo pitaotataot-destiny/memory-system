@@ -31,6 +31,7 @@ import java.util.Set;
 public class MemoryAgent implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(MemoryAgent.class);
+    private static final int LOG_TRUNCATE_LENGTH = 80;
 
     private final MemoryClient client;
     private final MetaModel model;
@@ -65,8 +66,8 @@ public class MemoryAgent implements AutoCloseable {
             return IngestResult.failed("Agent is not enabled in DSL");
         }
 
-        LOG.debug("Ingesting: {}", rawText.length() > 80
-            ? rawText.substring(0, 80) + "..." : rawText);
+        LOG.debug("Ingesting: {}", rawText.length() > LOG_TRUNCATE_LENGTH
+            ? rawText.substring(0, LOG_TRUNCATE_LENGTH) + "..." : rawText);
         PipelineContext ctx = new PipelineContext(rawText);
         return ingestPipeline.execute(ctx);
     }

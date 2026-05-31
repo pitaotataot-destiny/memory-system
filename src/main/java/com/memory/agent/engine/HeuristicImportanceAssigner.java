@@ -22,6 +22,7 @@ public class HeuristicImportanceAssigner implements ImportanceAssigner {
     private static final double CONTENT_LENGTH_BOOST = 0.05;
     private static final double TAG_BOOST = 0.03;
     private static final double PREFERENCE_BOOST = 0.1;
+    private static final double DEFAULT_SCORE = 0.8;
     private static final int MIN_CONTENT_LENGTH_FOR_BOOST = 20;
 
     @Override
@@ -38,7 +39,8 @@ public class HeuristicImportanceAssigner implements ImportanceAssigner {
     public double assign(String typeKind, Map<String, Object> fields, Set<String> tags,
                           MetaModel model) {
         double baseImportance = model.getAgent() != null
-            ? model.getAgent().getImportance().getDefaultImportance() : 0.8;
+            ? model.getAgent().getImportance().getDefaultImportance()
+            : DEFAULT_SCORE;
 
         double score = baseImportance;
 

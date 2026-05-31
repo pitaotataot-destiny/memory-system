@@ -350,12 +350,19 @@ agent:
 
   # ── 意图分类 ──
   intent:
-    # 分类引擎：keyword-match（关键词匹配，默认）
+    # 分类引擎：keyword-match（关键词匹配，默认）| llm（LLM 语义分类）
     engine: "keyword-match"
     # 置信度低于此值退回 fallback_type
     confidence_threshold: 0.6
     # 所有类型置信度均低于阈值时的兜底类型
     fallback_type: "fact"
+    # LLM 引擎专属参数（仅 engine=llm 时生效）:
+    # params:
+    #   endpoint: "https://api.openai.com/v1/chat/completions"
+    #   model: "gpt-4o-mini"
+    #   api_key_env: "OPENAI_API_KEY"     # 从环境变量读密钥
+    #   timeout_ms: 15000
+    #   max_tokens: 256
 
   # ── 信息提取 ──
   extraction:

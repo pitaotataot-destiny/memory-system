@@ -478,8 +478,12 @@ public class ComponentRegistry {
         // 意图分类器
         components.put("agent:intent:keyword-match",
             new com.memory.agent.engine.KeywordIntentClassifier());
+        components.put("agent:intent:llm",
+            new com.memory.agent.engine.LlmIntentClassifier());
         registerSpiImplementation("com.memory.agent.spi.IntentClassifier",
             com.memory.agent.engine.KeywordIntentClassifier.class);
+        registerSpiImplementation("com.memory.agent.spi.IntentClassifier",
+            com.memory.agent.engine.LlmIntentClassifier.class);
 
         // 信息提取器
         components.put("agent:extract:template",

@@ -3,7 +3,6 @@ package com.memory.agent.engine;
 import com.memory.agent.spi.ConflictDetector;
 import com.memory.model.MemoryRecord;
 import com.memory.model.MetaModel;
-import com.memory.model.agent.AgentTypeHint;
 import com.memory.model.type.MemoryType;
 import com.memory.spi.SPI;
 
@@ -24,7 +23,10 @@ public class FieldConflictDetector implements ConflictDetector {
 
     // 核心字段（content 类字段差异大时权重高）
     private static final double CORE_FIELD_WEIGHT = 0.6;
-    private static final double THRESHOLD_FACTOR = 0.5;
+    private static final double CONFLICT_THRESHOLD = 0.5;
+    private static final double DUPLICATE_SEVERITY = 0.9;
+    private static final double HIGH_SIMILARITY_CUTOFF = 0.7;
+    private static final int TRUNCATE_LIMIT = 50;
 
     @Override
     public String name() {
@@ -52,7 +54,7 @@ public class FieldConflictDetector implements ConflictDetector {
             if (severity > maxSeverity) {
                 maxSeverity = severity;
             }
-            if (severity > THRESHOLD_FACTOR) {
+            if (severity > CONFLICT_THRESHOLD) {
                 conflictIds.add(record.getId());
                 if (bestDesc.isEmpty()) {
                     bestDesc = describeConflict(newFields, record);
@@ -84,15 +86,15 @@ public class FieldConflictDetector implements ConflictDetector {
         String oldStr = oldContent != null ? oldContent : "";
 
         if (newStr.equals(oldStr)) {
-            // 内容完全相同 → 重复，严重度为 0.9
-            return 0.9;
+            // 内容完全相同 → 重复
+            return DUPLICATE_SEVERITY;
         }
 
         // 计算字符串相似度（简易 Jaccard 距离）
         double similarity = computeTextSimilarity(newStr, oldStr);
 
         // 高相似度 + 不同内容 → 可能是更新
-        if (similarity > 0.7) {
+        if (similarity > HIGH_SIMILARITY_CUTOFF) {
             return 1.0 - similarity;  // 0.3 以下，不太冲突
         }
 
@@ -124,8 +126,8 @@ public class FieldConflictDetector implements ConflictDetector {
         Object newContent = newFields.get("content");
         String oldContent = existing.getDataField("content");
         if (newContent != null && oldContent != null) {
-            return "content 字段不同: '" + truncate(oldContent, 50)
-                + "' vs '" + truncate(newContent.toString(), 50) + "'";
+            return "content 字段不同: '" + truncate(oldContent, TRUNCATE_LIMIT)
+                + "' vs '" + truncate(newContent.toString(), TRUNCATE_LIMIT) + "'";
         }
         return "字段存在差异";
     }

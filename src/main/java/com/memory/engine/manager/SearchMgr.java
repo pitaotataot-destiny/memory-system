@@ -200,33 +200,45 @@ public class SearchMgr {
             return new ArrayList<>(results);
         }
 
-        return results.stream().filter(r -> {
-            // 优先从内存缓存获取类型（避免搜索时逐条磁盘 IO）
-            String type = ctx.getCachedType(r.memoryId());
-            if (type == null) {
-                // 缓存未命中时 fallback 到磁盘（旧数据初次加载场景）
-                var store = ctx.getStore(
-                    ctx.getMetaModel().getGlobals().getStorage().getEngine().getValue());
-                String json = store.load(r.memoryId());
-                if (json == null) return false;
-                try {
-                    MemoryRecord record = MemoryRecord.fromJson(json);
-                    type = record.getType();
-                } catch (IllegalArgumentException e) {
-                    return false;  // JSON 损坏，跳过此结果
-                }
-                if (type != null) {
-                    ctx.cacheType(r.memoryId(), type);  // 填充缓存
-                }
-            }
-            if (type == null) return true; // 未标记类型的旧数据不过滤
+        boolean hasInc = hasInclude;
+        boolean hasExc = hasExclude;
+        List<String> inc = include;
+        List<String> exc = exclude;
+        return results.stream()
+            .filter(r -> matchesTypeFilter(r.memoryId(), hasInc, hasExc, inc, exc))
+            .collect(Collectors.toList());
+    }
 
-            // exclude 优先
-            if (hasExclude && exclude.contains(type)) return false;
-            // include：空列表 = 全部通过
-            if (hasInclude && !include.contains(type)) return false;
-            return true;
-        }).collect(Collectors.toList());
+    /** 检查单个记忆 ID 是否匹配类型过滤器 */
+    private boolean matchesTypeFilter(String memoryId, boolean hasInclude,
+                                       boolean hasExclude, List<String> include,
+                                       List<String> exclude) {
+        String type = resolveType(memoryId);
+        if (type == null) return true;  // 无类型标记不过滤
+        if (hasExclude && exclude.contains(type)) return false;
+        if (hasInclude && !include.contains(type)) return false;
+        return true;
+    }
+
+    /** 解析记忆类型：优先内存缓存，必要时回退磁盘 */
+    private String resolveType(String memoryId) {
+        String type = ctx.getCachedType(memoryId);
+        if (type != null) return type;
+
+        var store = ctx.getStore(
+            ctx.getMetaModel().getGlobals().getStorage().getEngine().getValue());
+        String json = store.load(memoryId);
+        if (json == null) return null;
+        try {
+            MemoryRecord record = MemoryRecord.fromJson(json);
+            type = record.getType();
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        if (type != null) {
+            ctx.cacheType(memoryId, type);
+        }
+        return type;
     }
 
     /**
