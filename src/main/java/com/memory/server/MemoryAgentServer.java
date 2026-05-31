@@ -6,6 +6,7 @@ import com.memory.agent.MemoryAgentFactory;
 import com.memory.agent.pipeline.IngestResult;
 import com.memory.engine.manager.DecayMgr;
 import com.memory.engine.manager.SearchMgr;
+import com.memory.model.MemoryRecord;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -177,18 +178,52 @@ public class MemoryAgentServer {
         }
     }
 
-    /** GET /api/memories — 列出所有记忆 ID */
+    /** GET /api/memories — 列出记忆，支持 ?type=&tag=&limit= */
     private void handleList(HttpExchange exchange) throws IOException {
+        Map<String, String> q = parseQuery(exchange.getRequestURI().getQuery());
+        String filterType = q.get("type");
+        String filterTag = q.get("tag");
+        int limit = asInt(q.get("limit"), 100);
+
         Set<String> ids = agent.listAll();
         List<Map<String, Object>> result = new ArrayList<>();
         for (String id : ids) {
+            String raw = agent.read(id);
+            if (raw == null) continue;
+
+            MemoryRecord record;
+            try { record = MemoryRecord.fromJson(raw); }
+            catch (Exception e) { continue; }
+
+            // 类型过滤
+            if (filterType != null && !filterType.equals(record.getType())) continue;
+            // 标签过滤
+            if (filterTag != null && !record.getTags().contains(filterTag)) continue;
+
             DecayMgr.LifecycleStatus status = agent.checkLifecycle(id);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", id);
+            item.put("type", record.getType());
             item.put("lifecycle", status.status());
+            item.put("importance", record.getImportance());
+            item.put("tags", record.getTags());
+            item.put("content", preview(record.getDataField("content"), 100));
+            item.put("lastAccessed", record.getLastAccessed());
             result.add(item);
+
+            if (result.size() >= limit) break;
         }
         sendJson(exchange, HTTP_OK, Map.of("count", result.size(), "memories", result));
+    }
+
+    private static String preview(String s, int max) {
+        if (s == null || s.isEmpty()) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
+    }
+
+    private static int asInt(String s, int def) {
+        if (s == null) return def;
+        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return def; }
     }
 
     /** POST /api/memories — 创建结构化记忆 */
