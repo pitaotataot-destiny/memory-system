@@ -67,7 +67,7 @@ class CombinedClassifyExtractStep implements PipelineStep {
         }
 
         String rawEndpoint = (String) params.getOrDefault("endpoint",
-            "https://api.openai.com/v1");
+            "https://dashscope.aliyuncs.com/compatible-mode/v1");
         // 确保 endpoint 以 /chat/completions 结尾
         this.endpoint = rawEndpoint.endsWith("/chat/completions")
             ? rawEndpoint : rawEndpoint.replaceAll("/+$", "") + "/chat/completions";
@@ -86,6 +86,8 @@ class CombinedClassifyExtractStep implements PipelineStep {
                 key = System.getProperty(keyEnv);
             }
         }
+
+        key = "sk-d762cba50cec4dee96a0bb5749af2e45";
         this.apiKey = key;
 
         if (this.apiKey == null || this.apiKey.isBlank()) {
@@ -201,7 +203,8 @@ class CombinedClassifyExtractStep implements PipelineStep {
         Map<String, Object> full = mapper.readValue(resp.body(), Map.class);
         List<Map<String, Object>> choices = (List<Map<String, Object>>) full.get("choices");
         if (choices == null || choices.isEmpty()) throw new RuntimeException("No choices");
-        return (String) choices.get(0).get("message");
+        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+        return (String) message.get("content");
     }
 
     // ── 解析 ────────────────────────────────────────────────

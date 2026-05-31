@@ -202,7 +202,8 @@ public class LlmInfoExtractor implements InformationExtractor {
             throw new RuntimeException("LLM response has no choices");
         }
 
-        String content = (String) choices.get(0).get("message");
+        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+        String content = (String) message.get("content");
         // 去掉 markdown 代码块
         content = content.replaceAll("```json\\s*", "").replaceAll("```\\s*", "").trim();
 
