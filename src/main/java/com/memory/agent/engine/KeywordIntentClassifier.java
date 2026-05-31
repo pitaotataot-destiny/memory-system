@@ -24,6 +24,8 @@ public class KeywordIntentClassifier implements IntentClassifier {
     private static final double LENGTH_MATCH_WEIGHT = 0.1;
     private static final double FALLBACK_CONFIDENCE = 0.5;
     private static final double DEFAULT_THRESHOLD = 0.6;
+    // 最佳匹配放大系数（当 avg 低于 best 时，放大 best 以提升阈值以上概率）
+    private static final double MAX_SCORE_BOOST = 1.2;
 
     @Override
     public String name() {
@@ -94,7 +96,7 @@ public class KeywordIntentClassifier implements IntentClassifier {
 
         double avg = totalScore / hint.getExamples().size();
         // 混合平均分和最佳分，最佳分权重更高（120% 上限）
-        return Math.min(1.0, Math.max(avg, maxScore * 1.2));
+        return Math.min(1.0, Math.max(avg, maxScore * MAX_SCORE_BOOST));
     }
 
     /** 计算单个 example 与输入文本的匹配得分 */
