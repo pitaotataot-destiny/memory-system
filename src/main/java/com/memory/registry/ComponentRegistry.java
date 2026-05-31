@@ -75,6 +75,12 @@ public class ComponentRegistry {
         registerScheduler();
         registerExpressionEngine();
 
+        // 阶段 4b：注册 Agent 组件（如果 DSL 启用了 agent）
+        if (metaModel.getAgent() != null && metaModel.getAgent().isEnabled()) {
+            scanAgentSpiImplementations();
+            registerAgentComponents();
+        }
+
         // 阶段 5：生命周期 init → start
         initAll();
         startAll();
@@ -166,6 +172,42 @@ public class ComponentRegistry {
     }
 
     /**
+     * 注册 Agent SPI 组件的占位符。
+     */
+    private void registerAgentComponents() {
+        // 意图分类器
+        String intentEngine = metaModel.getAgent().getIntent().getEngine();
+        components.putIfAbsent("agent:intent:" + intentEngine, PLACEHOLDER);
+
+        // 信息提取器
+        String extractEngine = metaModel.getAgent().getExtraction().getEngine();
+        components.putIfAbsent("agent:extract:" + extractEngine, PLACEHOLDER);
+
+        // 冲突检测器
+        String conflictEngine = metaModel.getAgent().getConflict().getEngine();
+        components.putIfAbsent("agent:conflict:" + conflictEngine, PLACEHOLDER);
+
+        // 重要性评估器
+        String impEngine = metaModel.getAgent().getImportance().getEngine();
+        components.putIfAbsent("agent:importance:" + impEngine, PLACEHOLDER);
+
+        // 记忆合并器
+        String consEngine = metaModel.getAgent().getConsolidation().getEngine();
+        components.putIfAbsent("agent:consolidate:" + consEngine, PLACEHOLDER);
+    }
+
+    /**
+     * 扫描 Agent SPI 接口的实现类。
+     */
+    private void scanAgentSpiImplementations() {
+        loadSpiClasses("com.memory.agent.spi.IntentClassifier");
+        loadSpiClasses("com.memory.agent.spi.InformationExtractor");
+        loadSpiClasses("com.memory.agent.spi.ConflictDetector");
+        loadSpiClasses("com.memory.agent.spi.ImportanceAssigner");
+        loadSpiClasses("com.memory.agent.spi.MemoryConsolidator");
+    }
+
+    /**
      * 注册表达式引擎。
      */
     private void registerExpressionEngine() {
@@ -201,6 +243,8 @@ public class ComponentRegistry {
                     instance = initScheduler();
                 } else if (key.startsWith("expression:")) {
                     instance = initExpressionEngine();
+                } else if (key.startsWith("agent:")) {
+                    instance = initAgentComponent(key);
                 }
 
                 if (instance != null) {
@@ -290,6 +334,47 @@ public class ComponentRegistry {
         Scheduler scheduler = (Scheduler) impls.get(0).getDeclaredConstructor().newInstance();
         scheduler.init();
         return scheduler;
+    }
+
+    /**
+     * 实例化 Agent SPI 组件。
+     */
+    private Object initAgentComponent(String key) throws ReflectiveOperationException {
+        String[] parts = key.split(":", 3);  // "agent:type:engineName"
+        if (parts.length < 3) return null;
+        String subType = parts[1];   // intent | extract | conflict | importance | consolidate
+        String engineName = parts[2];
+
+        return switch (subType) {
+            case "intent" -> initBySpi("com.memory.agent.spi.IntentClassifier", engineName);
+            case "extract" -> initBySpi("com.memory.agent.spi.InformationExtractor", engineName);
+            case "conflict" -> initBySpi("com.memory.agent.spi.ConflictDetector", engineName);
+            case "importance" -> initBySpi("com.memory.agent.spi.ImportanceAssigner", engineName);
+            case "consolidate" -> initBySpi("com.memory.agent.spi.MemoryConsolidator", engineName);
+            default -> null;
+        };
+    }
+
+    /** 按 SPI 接口和引擎名查找实现类并实例化 */
+    private Object initBySpi(String spiInterface, String engineName)
+            throws ReflectiveOperationException {
+        List<Class<?>> impls = spiImplementations.get(spiInterface);
+        if (impls == null) return null;
+        for (Class<?> implClass : impls) {
+            Object instance = implClass.getDeclaredConstructor().newInstance();
+            String name = (String) implClass.getMethod("name").invoke(instance);
+            if (name.equals(engineName)) {
+                // 调用 init(Map) 方法
+                Map<String, Object> params = Collections.emptyMap();
+                try {
+                    implClass.getMethod("init", Map.class).invoke(instance, params);
+                } catch (NoSuchMethodException ignored) {
+                    // 无 init 方法也 OK
+                }
+                return instance;
+            }
+        }
+        return null;
     }
 
     /**
@@ -383,6 +468,42 @@ public class ComponentRegistry {
             com.memory.engine.scheduler.DefaultScheduler.class);
         registerSpiImplementation("com.memory.spi.ExpressionEngine",
             com.memory.engine.expression.DefaultExpressionEngine.class);
+
+        // 注册 Agent 默认实现
+        registerAgentDefaults();
+    }
+
+    /** 注册 Agent 默认组件实现 */
+    private void registerAgentDefaults() {
+        // 意图分类器
+        components.put("agent:intent:keyword-match",
+            new com.memory.agent.engine.KeywordIntentClassifier());
+        registerSpiImplementation("com.memory.agent.spi.IntentClassifier",
+            com.memory.agent.engine.KeywordIntentClassifier.class);
+
+        // 信息提取器
+        components.put("agent:extract:template",
+            new com.memory.agent.engine.TemplateInfoExtractor());
+        registerSpiImplementation("com.memory.agent.spi.InformationExtractor",
+            com.memory.agent.engine.TemplateInfoExtractor.class);
+
+        // 冲突检测器
+        components.put("agent:conflict:field-compare",
+            new com.memory.agent.engine.FieldConflictDetector());
+        registerSpiImplementation("com.memory.agent.spi.ConflictDetector",
+            com.memory.agent.engine.FieldConflictDetector.class);
+
+        // 重要性评估器
+        components.put("agent:importance:heuristic",
+            new com.memory.agent.engine.HeuristicImportanceAssigner());
+        registerSpiImplementation("com.memory.agent.spi.ImportanceAssigner",
+            com.memory.agent.engine.HeuristicImportanceAssigner.class);
+
+        // 记忆合并器
+        components.put("agent:consolidate:simple-merge",
+            new com.memory.agent.engine.SimpleConsolidator());
+        registerSpiImplementation("com.memory.agent.spi.MemoryConsolidator",
+            com.memory.agent.engine.SimpleConsolidator.class);
     }
 
     /**

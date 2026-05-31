@@ -1,5 +1,6 @@
 package com.memory.model.type;
 
+import com.memory.model.agent.AgentTypeHint;
 import com.memory.model.enums.MemoryTypeKind;
 import com.memory.model.constraint.FieldConstraint;
 import com.memory.model.constraint.TagConstraint;
@@ -17,6 +18,7 @@ public class MemoryType {
     private Map<String, FieldConstraint> fields = Collections.emptyMap();
     private TagConstraint tags = new TagConstraint();
     private TypeMeta meta = new TypeMeta();
+    private AgentTypeHint agentHint;
 
     public MemoryType() {}
 
@@ -34,4 +36,7 @@ public class MemoryType {
 
     public TypeMeta getMeta() { return meta; }
     public void setMeta(TypeMeta meta) { this.meta = meta; }
+
+    public AgentTypeHint getAgentHint() { return agentHint; }
+    public void setAgentHint(AgentTypeHint agentHint) { this.agentHint = agentHint; }
 }

@@ -73,6 +73,18 @@ types:
       # 去重规则：content 字段相同的记忆视为重复，拒绝写入
       unique_by: ["content"]
 
+    # Agent 类型提示（帮助分类器和提取器理解此类型）
+    agent:
+      prompt: "客观事实、技术知识、确定性的声明"
+      examples:
+        - "Java 17 是 LTS 版本"
+        - "Spring Boot 3.0 需要 Java 17 及以上"
+        - "HTTP/2 默认使用多路复用"
+      field_hints:
+        content: "提取核心事实内容的一句话概括"
+        source: "提取信息来源（说话人、文档名、URL），无则留空"
+        confidence: "0~1 之间，表示事实的确定性"
+
   # ── preference：用户偏好 ──
   # 用户的工作习惯、代码风格偏好等，权重更高，不易被清掉。
   preference:
@@ -91,6 +103,18 @@ types:
       unique_by: ["content", "category"]
       # 重要性下限 0.3，即使长期不访问也不会低于此值（不会被清理）
       importance_floor: 0.3
+
+    # Agent 类型提示
+    agent:
+      prompt: "用户偏好、习惯、代码风格选择、主观意见"
+      examples:
+        - "我喜欢用 4 空格缩进"
+        - "接口命名用 I 前缀更清晰"
+        - "日志应该用英文，注释用中文"
+      field_hints:
+        content: "提取偏好内容的一句话概括"
+        category: "偏好类别：feedback / style / workflow / tool"
+        strength: "偏好强度 1-5，5 表示用户非常重视"
 
   # ── context：项目上下文 ──
   # 当前项目/任务的上下文信息，衰减快，属于短期记忆。
@@ -111,6 +135,18 @@ types:
       # 重要性下限很低，容易被清理
       importance_floor: 0.05
 
+    # Agent 类型提示
+    agent:
+      prompt: "项目状态、当前任务、临时上下文信息"
+      examples:
+        - "当前在写 MemoryMgrTest"
+        - "这个模块依赖 Spring Boot 3.0"
+        - "项目 deadline 是周五"
+      field_hints:
+        content: "提取上下文摘要"
+        scope: "上下文范围：project / module / file"
+        ttl_override: "覆盖默认 TTL 的天数，通常不需要填"
+
   # ── reference：参考资料 ──
   # 外部链接、文档片段、文件引用等。
   reference:
@@ -126,6 +162,18 @@ types:
     meta:
       # URL 一旦写入不可修改，防止链接被意外篡改
       immutable_fields: ["url"]
+
+    # Agent 类型提示
+    agent:
+      prompt: "外部引用、链接、文件路径、代码片段引用"
+      examples:
+        - "参考文档 https://spring.io/docs"
+        - "代码片段在 src/main/App.java:42"
+        - "RFC 2616 定义了 HTTP/1.1 协议"
+      field_hints:
+        content: "提取引用描述"
+        url: "提取 URL 地址，无则留空"
+        format: "判断格式：link / snippet / file"
 
 
 # ── 2. 衰减策略 ─────────────────────────────────────────
@@ -292,6 +340,52 @@ search:
     # 排除这些类型的记忆（空 = 不排除任何类型）
     exclude: []
 
+
+# ── 5. Agent 智能管道（Layer 3） ──────────────────────────
+# 输入原始文本，Agent 自主完成分类→提取→存储→冲突检测全链路。
+# 引擎默认使用轻量实现（关键词+规则），可替换为 LLM 实现。
+agent:
+  # 是否启用 Agent 管道。false 时 MemoryAgent.ingest() 不可用。
+  enabled: true
+
+  # ── 意图分类 ──
+  intent:
+    # 分类引擎：keyword-match（关键词匹配，默认）
+    engine: "keyword-match"
+    # 置信度低于此值退回 fallback_type
+    confidence_threshold: 0.6
+    # 所有类型置信度均低于阈值时的兜底类型
+    fallback_type: "fact"
+
+  # ── 信息提取 ──
+  extraction:
+    # 提取引擎：template（模板提取，默认）
+    engine: "template"
+
+  # ── 冲突检测 ──
+  conflict:
+    # 冲突检测引擎：field-compare（逐字段对比，默认）
+    engine: "field-compare"
+    # 冲突严重度阈值，超过此值标记为真冲突
+    severity_threshold: 0.5
+    # 冲突解决策略：ask | auto-update | ignore | merge
+    resolution: "ask"
+
+  # ── 重要性分配 ──
+  importance:
+    # 重要性评估引擎：heuristic（启发式规则，默认）
+    engine: "heuristic"
+    # 默认初始重要性
+    default_importance: 0.8
+
+  # ── 记忆合并 ──
+  consolidation:
+    # 合并引擎：simple-merge（基础合并，默认）
+    engine: "simple-merge"
+    # 合并触发调度（cron 表达式，每天凌晨 2:00）
+    schedule: "0 2 * * *"
+    # 合并策略：latest-wins | most-confident | weave
+    strategy: "latest-wins"
 
 # ── 4. 触发器（可选扩展） ─────────────────────────────────
 # 事件驱动机制：when 条件满足时执行 then 动作。

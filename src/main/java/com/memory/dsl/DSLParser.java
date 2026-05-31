@@ -1,6 +1,13 @@
 package com.memory.dsl;
 
 import com.memory.model.MetaModel;
+import com.memory.model.agent.AgentConfig;
+import com.memory.model.agent.AgentTypeHint;
+import com.memory.model.agent.ConflictConfig;
+import com.memory.model.agent.ConsolidationConfig;
+import com.memory.model.agent.ExtractionConfig;
+import com.memory.model.agent.ImportanceConfig;
+import com.memory.model.agent.IntentConfig;
 import com.memory.model.decay.DecayConfig;
 import com.memory.model.decay.DecayPolicy;
 import com.memory.model.decay.LifecycleConfig;
@@ -80,6 +87,7 @@ public class DSLParser {
         model.setTypes(parseTypes((Map<String, Object>) raw.getOrDefault("types", Collections.emptyMap())));
         model.setDecay(parseDecay((Map<String, Object>) raw.getOrDefault("decay", Collections.emptyMap())));
         model.setSearch(parseSearch((Map<String, Object>) raw.getOrDefault("search", Collections.emptyMap())));
+        model.setAgent(parseAgent((Map<String, Object>) raw.getOrDefault("agent", Collections.emptyMap())));
         model.setTriggers(parseTriggers((List<Object>) raw.getOrDefault("triggers", Collections.emptyList())));
 
         validate(model);
@@ -120,6 +128,7 @@ public class DSLParser {
             mt.setFields(parseFields((Map<String, Object>) spec.getOrDefault("fields", Collections.emptyMap())));
             mt.setTags(parseTags((Map<String, Object>) spec.getOrDefault("tags", Collections.emptyMap())));
             mt.setMeta(parseMeta((Map<String, Object>) spec.getOrDefault("meta", Collections.emptyMap())));
+            mt.setAgentHint(parseAgentTypeHint((Map<String, Object>) spec.getOrDefault("agent", Collections.emptyMap())));
 
             types.put(kind, mt);
         }
@@ -286,6 +295,76 @@ public class DSLParser {
             triggers.add(t);
         }
         return triggers;
+    }
+
+    // ── Agent ──────────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    private AgentConfig parseAgent(Map<String, Object> raw) {
+        AgentConfig config = new AgentConfig();
+        if (raw == null || raw.isEmpty()) {
+            config.setEnabled(false);
+            return config;
+        }
+        config.setEnabled(asBoolean(raw.get("enabled"), true));
+
+        // intent
+        Map<String, Object> intentRaw = (Map<String, Object>) raw.getOrDefault("intent", Collections.emptyMap());
+        IntentConfig intent = new IntentConfig();
+        intent.setEngine((String) intentRaw.getOrDefault("engine", "keyword-match"));
+        intent.setConfidenceThreshold(asDouble(intentRaw.get("confidence_threshold"), 0.6));
+        intent.setFallbackType((String) intentRaw.getOrDefault("fallback_type", "fact"));
+        config.setIntent(intent);
+
+        // extraction
+        Map<String, Object> extractRaw = (Map<String, Object>) raw.getOrDefault("extraction", Collections.emptyMap());
+        ExtractionConfig extraction = new ExtractionConfig();
+        extraction.setEngine((String) extractRaw.getOrDefault("engine", "template"));
+        config.setExtraction(extraction);
+
+        // conflict
+        Map<String, Object> conflictRaw = (Map<String, Object>) raw.getOrDefault("conflict", Collections.emptyMap());
+        ConflictConfig conflict = new ConflictConfig();
+        conflict.setEngine((String) conflictRaw.getOrDefault("engine", "field-compare"));
+        conflict.setSeverityThreshold(asDouble(conflictRaw.get("severity_threshold"), 0.5));
+        conflict.setResolution((String) conflictRaw.getOrDefault("resolution", "ask"));
+        config.setConflict(conflict);
+
+        // importance
+        Map<String, Object> impRaw = (Map<String, Object>) raw.getOrDefault("importance", Collections.emptyMap());
+        ImportanceConfig importance = new ImportanceConfig();
+        importance.setEngine((String) impRaw.getOrDefault("engine", "heuristic"));
+        importance.setDefaultImportance(asDouble(impRaw.get("default_importance"), 0.8));
+        config.setImportance(importance);
+
+        // consolidation
+        Map<String, Object> consRaw = (Map<String, Object>) raw.getOrDefault("consolidation", Collections.emptyMap());
+        ConsolidationConfig consolidation = new ConsolidationConfig();
+        consolidation.setEngine((String) consRaw.getOrDefault("engine", "simple-merge"));
+        consolidation.setSchedule((String) consRaw.getOrDefault("schedule", "0 2 * * *"));
+        consolidation.setStrategy((String) consRaw.getOrDefault("strategy", "latest-wins"));
+        config.setConsolidation(consolidation);
+
+        return config;
+    }
+
+    /**
+     * 解析 types.*.agent 节中的 AgentTypeHint。
+     */
+    @SuppressWarnings("unchecked")
+    private AgentTypeHint parseAgentTypeHint(Map<String, Object> raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        AgentTypeHint hint = new AgentTypeHint();
+        hint.setPrompt((String) raw.getOrDefault("prompt", ""));
+        hint.setExamples((List<String>) raw.getOrDefault("examples", Collections.emptyList()));
+
+        Map<String, Object> fieldHintsRaw = (Map<String, Object>) raw.getOrDefault("field_hints", Collections.emptyMap());
+        Map<String, String> fieldHints = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : fieldHintsRaw.entrySet()) {
+            fieldHints.put(entry.getKey(), String.valueOf(entry.getValue()));
+        }
+        hint.setFieldHints(fieldHints);
+        return hint;
     }
 
     // ── Validation ───────────────────────────────────────

@@ -1,5 +1,6 @@
 package com.memory.model;
 
+import com.memory.model.agent.AgentConfig;
 import com.memory.model.decay.DecayPolicy;
 import com.memory.model.globals.Globals;
 import com.memory.model.search.SearchConfig;
@@ -22,6 +23,7 @@ public class MetaModel {
     private Map<String, MemoryType> types = new HashMap<>();
     private DecayPolicy decay;
     private SearchConfig search;
+    private AgentConfig agent;
     private List<Trigger> triggers = new ArrayList<>();
 
     public MetaModel() {}
@@ -40,6 +42,9 @@ public class MetaModel {
 
     public SearchConfig getSearch() { return search; }
     public void setSearch(SearchConfig search) { this.search = search; }
+
+    public AgentConfig getAgent() { return agent; }
+    public void setAgent(AgentConfig agent) { this.agent = agent; }
 
     public List<Trigger> getTriggers() { return triggers; }
     public void setTriggers(List<Trigger> triggers) { this.triggers = triggers; }
