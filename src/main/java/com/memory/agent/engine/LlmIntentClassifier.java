@@ -52,6 +52,7 @@ public class LlmIntentClassifier implements IntentClassifier {
     private static final int HTTP_OK = 200;
     private static final double PARSE_FALLBACK_CONFIDENCE = 0.5;
     private static final double PARSE_FALLBACK_CONFIDENCE_LOW = 0.3;
+    private static final int KEY_PREVIEW_LEN = 7;
 
     private HttpClient httpClient;
     private String endpoint;
@@ -98,7 +99,7 @@ public class LlmIntentClassifier implements IntentClassifier {
                 + "or add -DOPENAI_API_KEY=sk-xxx to JVM args.", keyEnv, keyEnv);
         } else {
             LOG.info("LLM IntentClassifier: API key loaded ({}...{})",
-                this.apiKey.substring(0, Math.min(7, this.apiKey.length())),
+                this.apiKey.substring(0, Math.min(KEY_PREVIEW_LEN, this.apiKey.length())),
                 this.apiKey.substring(Math.max(0, this.apiKey.length() - 4)));
         }
 

@@ -64,6 +64,9 @@ public class MemoryMgr {
         validateFieldConstraints(type, data);
         validateTagConstraints(type, tags);
 
+        // 唯一性检查（unique_by）
+        checkUniqueness(type, data, resolvedKind);
+
         // 构造 MemoryRecord（Jackson 序列化用户数据）
         String id = UUID.randomUUID().toString();
         MemoryRecord record = MemoryRecord.create(id, resolvedKind, data, tags);
@@ -240,6 +243,83 @@ public class MemoryMgr {
                 }
             }
         }
+    }
+
+    /**
+     * 唯一性校验：按 type.meta.unique_by 字段检查是否已有重复记忆。
+     */
+    private void checkUniqueness(MemoryType type, String newData, String resolvedKind) {
+        java.util.List<String> uniqueBy = type.getMeta() != null
+            ? type.getMeta().getUniqueBy() : null;
+        if (uniqueBy == null || uniqueBy.isEmpty()) return;
+
+        // 解析新数据的唯一字段值
+        Map<String, String> newValues = new java.util.LinkedHashMap<>();
+        for (String field : uniqueBy) {
+            String val = extractFieldValue(newData, field);
+            if (val != null) newValues.put(field, val);
+        }
+        if (newValues.isEmpty()) return;
+
+        // 遍历已有记忆，检查冲突
+        MemoryStore store = ctx.getStore(getStoreName());
+        for (String existingId : store.listAll()) {
+            String raw = store.load(existingId);
+            if (raw == null) continue;
+
+            // 只检查同类型
+            String existingType = extractMetaField(raw, "_type");
+            if (!resolvedKind.equals(existingType)) continue;
+
+            boolean allMatch = true;
+            for (Map.Entry<String, String> e : newValues.entrySet()) {
+                String existingVal = extractDataFieldValue(raw, e.getKey());
+                if (!e.getValue().equals(existingVal)) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) {
+                throw new IllegalArgumentException(
+                    "Duplicate memory: type=" + resolvedKind
+                    + ", unique_by=" + uniqueBy
+                    + ", existing=" + existingId);
+            }
+        }
+    }
+
+    /** 从 JSON 字符串中提取顶层字段的字符串值 */
+    private static String extractFieldValue(String json, String fieldName) {
+        String key = "\"" + fieldName + "\":";
+        int idx = json.indexOf(key);
+        if (idx < 0) return null;
+        idx += key.length();
+        while (idx < json.length() && json.charAt(idx) == ' ') idx++;
+        if (idx >= json.length()) return null;
+        if (json.charAt(idx) == '"') {
+            int end = json.indexOf('"', idx + 1);
+            return end > idx ? json.substring(idx + 1, end) : null;
+        }
+        int end = idx;
+        while (end < json.length() && ",}".indexOf(json.charAt(end)) < 0) end++;
+        return json.substring(idx, end).trim();
+    }
+
+    /** 从包装 JSON 的 _data 部分提取字段值 */
+    private static String extractDataFieldValue(String wrappedJson, String fieldName) {
+        int dataStart = wrappedJson.indexOf("\"_data\":{");
+        if (dataStart < 0) return null;
+        return extractFieldValue(wrappedJson.substring(dataStart), fieldName);
+    }
+
+    /** 从包装 JSON 提取元数据字段（字符串） */
+    private static String extractMetaField(String json, String field) {
+        String key = "\"" + field + "\":\"";
+        int idx = json.indexOf(key);
+        if (idx < 0) return null;
+        idx += key.length();
+        int end = json.indexOf('"', idx);
+        return end > idx ? json.substring(idx, end) : null;
     }
 
     /**

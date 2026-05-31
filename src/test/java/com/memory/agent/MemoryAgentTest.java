@@ -43,9 +43,14 @@ class MemoryAgentTest {
         assertTrue(model.getAgent().isEnabled(), "Agent should be enabled");
     }
 
+    private java.nio.file.Path testDir;
+
     @BeforeEach
-    void setUp() {
-        agent = MemoryAgentFactory.createFromString(buildMinimalAgentDsl());
+    void setUp() throws Exception {
+        testDir = java.nio.file.Files.createTempDirectory("mem-test-");
+        String dsl = buildMinimalAgentDsl()
+            .replace("\"./data/memory\"", "\"" + testDir.toString().replace("\\", "/") + "\"");
+        agent = MemoryAgentFactory.createFromString(dsl);
     }
 
     @AfterEach

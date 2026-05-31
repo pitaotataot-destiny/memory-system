@@ -55,7 +55,7 @@ public class IngestPipeline {
 
         // 异步步骤
         asyncSteps.add(new SearchExistingStep(client));
-        asyncSteps.add(new ConflictDetectionStep(conflictDetector, model));
+        asyncSteps.add(new ConflictDetectionStep(conflictDetector, model, client));
 
         // 单线程执行器（异步任务是串行的）
         asyncExecutor = Executors.newSingleThreadExecutor(r -> {

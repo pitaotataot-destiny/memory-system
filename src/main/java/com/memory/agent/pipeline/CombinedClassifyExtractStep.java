@@ -37,6 +37,7 @@ class CombinedClassifyExtractStep implements PipelineStep {
     private static final int HTTP_OK = 200;
     private static final double DEFAULT_CONFIDENCE = 0.7;
     private static final double FALLBACK_CONFIDENCE = 0.3;
+    private static final int KEY_PREVIEW_LEN = 7;
 
     private final HttpClient httpClient;
     private final String endpoint;
@@ -98,7 +99,7 @@ class CombinedClassifyExtractStep implements PipelineStep {
             LOG.info("CombinedClassifyExtract: API key loaded from {} ({}...{})",
                 directKey != null ? "params" : System.getenv(keyEnv) != null
                     ? "env " + keyEnv : "system property " + keyEnv,
-                this.apiKey.substring(0, Math.min(7, this.apiKey.length())),
+                this.apiKey.substring(0, Math.min(KEY_PREVIEW_LEN, this.apiKey.length())),
                 this.apiKey.substring(Math.max(0, this.apiKey.length() - 4)));
         }
 

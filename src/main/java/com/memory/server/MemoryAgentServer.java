@@ -3,9 +3,11 @@ package com.memory.server;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.memory.agent.MemoryAgent;
 import com.memory.agent.MemoryAgentFactory;
+import com.memory.agent.pipeline.ConflictDetectionStep;
 import com.memory.agent.pipeline.IngestResult;
 import com.memory.engine.manager.DecayMgr;
 import com.memory.engine.manager.SearchMgr;
+import com.memory.model.IngestDecision;
 import com.memory.model.MemoryRecord;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -75,6 +77,8 @@ public class MemoryAgentServer {
         server.createContext("/api/memories", this::handleMemories);
         server.createContext("/api/search", this::handleSearch);
         server.createContext("/api/decay", this::handleDecay);
+        server.createContext("/api/pending-decisions", this::handlePendingDecisions);
+        server.createContext("/api/decisions", this::handleDecisionResolve);
         server.createContext("/api/health", this::handleHealth);
     }
 
@@ -295,6 +299,53 @@ public class MemoryAgentServer {
             "archived", summary.archived(),
             "purged", summary.purged()
         ));
+    }
+
+    /** GET /api/pending-decisions — 列出待确认的冲突决策 */
+    private void handlePendingDecisions(HttpExchange exchange) throws IOException {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+            sendError(exchange, HTTP_BAD_REQUEST, "Use GET");
+            return;
+        }
+        var decisions = ConflictDetectionStep.getPendingDecisions();
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (var pd : decisions.values()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", pd.id());
+            item.put("typeKind", pd.typeKind());
+            item.put("fields", pd.fields());
+            item.put("tags", pd.tags());
+            item.put("conflictingIds", pd.conflictingIds());
+            item.put("reason", pd.reason());
+            items.add(item);
+        }
+        sendJson(exchange, HTTP_OK, Map.of("count", items.size(), "decisions", items));
+    }
+
+    /** POST /api/decisions/{id}/resolve — 确认/拒绝/合并冲突 */
+    private void handleDecisionResolve(HttpExchange exchange) throws IOException {
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            sendError(exchange, HTTP_BAD_REQUEST, "Use POST");
+            return;
+        }
+        String path = exchange.getRequestURI().getPath();
+        // /api/decisions/{id}/resolve
+        String[] segments = path.split("/");
+        if (segments.length < 4) {
+            sendError(exchange, HTTP_BAD_REQUEST, "Path: /api/decisions/{id}/resolve");
+            return;
+        }
+        String decisionId = segments[segments.length - 2];  // {id}
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = mapper.readValue(exchange.getRequestBody(), Map.class);
+        String choice = (String) body.getOrDefault("choice", "keep-existing");
+        // choice: accept | merge | keep-existing
+
+        // 通过 MemoryClient 执行实际操作
+        IngestDecision result = ConflictDetectionStep.resolveDecision(
+            decisionId, choice, agent.getClient());
+        sendJson(exchange, HTTP_OK, Map.of("decisionId", decisionId, "result", result.name()));
     }
 
     /** GET /api/health — 健康检查 */

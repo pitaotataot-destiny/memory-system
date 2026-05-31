@@ -195,6 +195,11 @@ public class MemoryAgent implements AutoCloseable {
         return client.getModel();
     }
 
+    /** 获取底层 MemoryClient（高级场景） */
+    public MemoryClient getClient() {
+        return client;
+    }
+
     public void updateModel(MetaModel newModel) {
         client.updateModel(newModel);
     }
