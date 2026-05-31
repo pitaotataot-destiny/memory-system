@@ -214,7 +214,6 @@ public class LlmInfoExtractor implements InformationExtractor {
 
         List<String> tagList = (List<String>) result.getOrDefault("tags", List.of());
         Set<String> tags = new LinkedHashSet<>(tagList);
-        tags.add(typeKind);  // 类型名始终作为标签
 
         return new ExtractedInfo(fields, tags);
     }

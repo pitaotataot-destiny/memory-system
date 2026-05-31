@@ -220,9 +220,6 @@ class CombinedClassifyExtractStep implements PipelineStep {
             new LinkedHashMap<>());
         List<String> tagList = (List<String>) result.getOrDefault("tags", List.of());
         Set<String> tags = new LinkedHashSet<>(tagList);
-        if (typeKind != null && !typeKind.isEmpty()) {
-            tags.add(typeKind);
-        }
 
         // 校验类型名
         if (typeKind == null || !metaModel.getTypes().containsKey(typeKind)) {
