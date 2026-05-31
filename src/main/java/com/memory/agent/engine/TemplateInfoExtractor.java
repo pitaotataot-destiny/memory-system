@@ -95,16 +95,36 @@ public class TemplateInfoExtractor implements InformationExtractor {
 
     /**
      * 为缺失的必填字段填充默认值。
+     * 遍历类型定义中所有 required=true 的字段，缺失时填入类型合适的默认值。
      */
     private void fillDefaults(Map<String, Object> fields, MemoryType type) {
-        if (type == null) return;
-        AgentTypeHint hint = type.getAgentHint();
-        if (hint == null) return;
+        if (type == null || type.getFields() == null) return;
 
-        // 确保 content 字段存在
-        if (!fields.containsKey("content") && type.getFields() != null
-            && type.getFields().containsKey("content")) {
-            fields.put("content", "");
+        for (Map.Entry<String, com.memory.model.constraint.FieldConstraint> entry
+                : type.getFields().entrySet()) {
+            String fieldName = entry.getKey();
+            com.memory.model.constraint.FieldConstraint constraint = entry.getValue();
+
+            if (constraint.isRequired() && !fields.containsKey(fieldName)) {
+                fields.put(fieldName, defaultValueFor(constraint));
+            }
         }
     }
+
+    /** 根据字段类型生成合适的默认值 */
+    private static Object defaultValueFor(com.memory.model.constraint.FieldConstraint c) {
+        // 优先用 DSL 中声明的 default 值
+        if (c.getDefaultValue() != null) {
+            return c.getDefaultValue();
+        }
+
+        String type = c.getType() != null ? c.getType() : "string";
+        return switch (type) {
+            case "string" -> "";
+            case "int" -> c.getMin() != null ? c.getMin() : 0;
+            case "float" -> 0.0;
+            default -> "";
+        };
+    }
+
 }

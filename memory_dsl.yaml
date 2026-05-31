@@ -93,7 +93,7 @@ types:
       # 偏好内容，必填。
       content:    { type: string, required: true }
       # 偏好分类，必填。用于区分反馈 / 风格 / 工作流等不同类型。
-      category:   { type: string, required: true }
+      category:   { type: string, required: true, default: "general" }
       # 偏好强度，1~5 整数，默认 3。值越高表示用户越重视。
       strength:   { type: int,    min: 1, max: 5, default: 3 }
     tags:
