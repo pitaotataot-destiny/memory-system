@@ -71,8 +71,10 @@ public class LlmIntentClassifier implements IntentClassifier {
 
     @Override
     public void init(Map<String, Object> params) {
-        this.endpoint = (String) params.getOrDefault("endpoint",
-            "https://api.openai.com/v1/chat/completions");
+        String rawEndpoint = (String) params.getOrDefault("endpoint",
+            "https://api.openai.com/v1");
+        this.endpoint = rawEndpoint.endsWith("/chat/completions")
+            ? rawEndpoint : rawEndpoint.replaceAll("/+$", "") + "/chat/completions";
         this.model = (String) params.getOrDefault("model", DEFAULT_MODEL);
         this.timeoutMs = asInt(params.get("timeout_ms"), DEFAULT_TIMEOUT_MS);
         this.maxTokens = asInt(params.get("max_tokens"), DEFAULT_MAX_TOKENS);

@@ -31,7 +31,7 @@ class CombinedClassifyExtractStep implements PipelineStep {
 
     private static final Logger LOG = LoggerFactory.getLogger(CombinedClassifyExtractStep.class);
 
-    private static final String DEFAULT_MODEL = "gpt-4o-mini";
+    private static final String DEFAULT_MODEL = "qwen3.7-max";
     private static final int DEFAULT_TIMEOUT_MS = 15_000;
     private static final int DEFAULT_MAX_TOKENS = 512;
     private static final int HTTP_OK = 200;
@@ -66,12 +66,15 @@ class CombinedClassifyExtractStep implements PipelineStep {
             params = extractCfg.getParams();
         }
 
-        this.endpoint = (String) params.getOrDefault("endpoint",
-            "https://api.openai.com/v1/chat/completions");
+        String rawEndpoint = (String) params.getOrDefault("endpoint",
+            "https://api.openai.com/v1");
+        // 确保 endpoint 以 /chat/completions 结尾
+        this.endpoint = rawEndpoint.endsWith("/chat/completions")
+            ? rawEndpoint : rawEndpoint.replaceAll("/+$", "") + "/chat/completions";
         this.llmModel = (String) params.getOrDefault("model", DEFAULT_MODEL);
         this.timeoutMs = asInt(params.get("timeout_ms"), DEFAULT_TIMEOUT_MS);
 
-        // 读取密钥（先放局部变量，最后一次性赋给 final 字段）
+        // 读取密钥
         String key = null;
         String directKey = (String) params.get("api_key");
         String keyEnv = (String) params.getOrDefault("api_key_env", "OPENAI_API_KEY");
