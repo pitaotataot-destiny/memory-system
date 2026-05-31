@@ -35,9 +35,21 @@ public class IngestPipeline {
                            IntentClassifier classifier, InformationExtractor extractor,
                            ImportanceAssigner importanceAssigner,
                            ConflictDetector conflictDetector) {
-        // 同步步骤
-        syncSteps.add(new IntentClassificationStep(classifier, model));
-        syncSteps.add(new InformationExtractionStep(extractor, model));
+        // 检测是否 LLM+LLM：合并分类+提取为一次调用
+        boolean intentIsLlm = isLlm(model.getAgent() != null
+            ? model.getAgent().getIntent().getEngine() : "");
+        boolean extractIsLlm = isLlm(model.getAgent() != null
+            ? model.getAgent().getExtraction().getEngine() : "");
+
+        if (intentIsLlm && extractIsLlm) {
+            LOG.info("Both intent & extraction are LLM — using combined single-call step");
+            PipelineStep fallbackClassify = new IntentClassificationStep(classifier, model);
+            PipelineStep fallbackExtract = new InformationExtractionStep(extractor, model);
+            syncSteps.add(new CombinedClassifyExtractStep(model, fallbackClassify, fallbackExtract));
+        } else {
+            syncSteps.add(new IntentClassificationStep(classifier, model));
+            syncSteps.add(new InformationExtractionStep(extractor, model));
+        }
         syncSteps.add(new ImportanceAssignmentStep(importanceAssigner, model));
         syncSteps.add(new StoreDecisionStep(client, model));
 
@@ -92,6 +104,10 @@ public class IngestPipeline {
         });
 
         return result;
+    }
+
+    private static boolean isLlm(String engine) {
+        return "llm".equals(engine);
     }
 
     /** 关闭异步执行器，等待 3 秒让正在执行的任务完成 */

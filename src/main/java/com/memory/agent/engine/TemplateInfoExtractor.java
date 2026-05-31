@@ -2,7 +2,6 @@ package com.memory.agent.engine;
 
 import com.memory.agent.spi.InformationExtractor;
 import com.memory.model.MetaModel;
-import com.memory.model.agent.AgentTypeHint;
 import com.memory.model.type.MemoryType;
 import com.memory.spi.SPI;
 
